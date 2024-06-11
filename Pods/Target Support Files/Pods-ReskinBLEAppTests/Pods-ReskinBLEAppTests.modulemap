@@ -1,0 +1,6 @@
+framework module Pods_ReskinBLEAppTests {
+  umbrella header "Pods-ReskinBLEAppTests-umbrella.h"
+
+  export *
+  module * { export * }
+}
