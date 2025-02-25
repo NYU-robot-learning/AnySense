@@ -1,0 +1,723 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		B9104F622BFDE63C000D4DDD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B9104F612BFDE63C000D4DDD /* Assets.xcassets */; };
+		B9944A342CFE983300232FBB /* MainPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9944A332CFE982E00232FBB /* MainPage.swift */; };
+		B997CCD32D4E081300F62B49 /* dataStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B997CCD22D4E081300F62B49 /* dataStorage.swift */; };
+		B997CCD52D4E082900F62B49 /* AnySenseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B997CCD42D4E082900F62B49 /* AnySenseApp.swift */; };
+		B9E4B22D2D62A9BA0032E877 /* BluetoothManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E4B2292D62A9BA0032E877 /* BluetoothManager.swift */; };
+		B9E4B22E2D62A9BA0032E877 /* WebRTCManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E4B22B2D62A9BA0032E877 /* WebRTCManager.swift */; };
+		B9E4B22F2D62A9BA0032E877 /* ARViewContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E4B2282D62A9BA0032E877 /* ARViewContainer.swift */; };
+		B9E4B2302D62A9BA0032E877 /* USBManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E4B22A2D62A9BA0032E877 /* USBManager.swift */; };
+		B9E4B2362D62A9C40032E877 /* peripheralView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E4B2332D62A9C40032E877 /* peripheralView.swift */; };
+		B9E4B2372D62A9C40032E877 /* accountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E4B2312D62A9C40032E877 /* accountView.swift */; };
+		B9E4B2382D62A9C40032E877 /* readView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E4B2342D62A9C40032E877 /* readView.swift */; };
+		B9E4B2392D62A9C40032E877 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E4B2322D62A9C40032E877 /* ContentView.swift */; };
+		B9E4D2B32D6965B90044F2D4 /* AnySenseLaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = B9E4D2B22D6965B90044F2D4 /* AnySenseLaunchScreen.storyboard */; };
+		B9E4D2B42D6965B90044F2D4 /* AnySenseLaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = B9E4D2B22D6965B90044F2D4 /* AnySenseLaunchScreen.storyboard */; };
+		B9E4D2B52D6965B90044F2D4 /* AnySenseLaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = B9E4D2B22D6965B90044F2D4 /* AnySenseLaunchScreen.storyboard */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		B9104F6B2BFDE63C000D4DDD /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B9104F522BFDE63A000D4DDD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B9104F592BFDE63A000D4DDD;
+			remoteInfo = USBInterfaceApp;
+		};
+		B9104F752BFDE63C000D4DDD /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B9104F522BFDE63A000D4DDD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B9104F592BFDE63A000D4DDD;
+			remoteInfo = USBInterfaceApp;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		B9104F5A2BFDE63A000D4DDD /* AnySense.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AnySense.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B9104F612BFDE63C000D4DDD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B9104F6A2BFDE63C000D4DDD /* AnySenseTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AnySenseTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B9104F742BFDE63C000D4DDD /* AnySenseUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AnySenseUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B98D69632C04911F00648D95 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		B9944A332CFE982E00232FBB /* MainPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainPage.swift; sourceTree = "<group>"; };
+		B997CCD22D4E081300F62B49 /* dataStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = dataStorage.swift; sourceTree = "<group>"; };
+		B997CCD42D4E082900F62B49 /* AnySenseApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnySenseApp.swift; sourceTree = "<group>"; };
+		B9E4B2282D62A9BA0032E877 /* ARViewContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ARViewContainer.swift; sourceTree = "<group>"; };
+		B9E4B2292D62A9BA0032E877 /* BluetoothManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothManager.swift; sourceTree = "<group>"; };
+		B9E4B22A2D62A9BA0032E877 /* USBManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = USBManager.swift; sourceTree = "<group>"; };
+		B9E4B22B2D62A9BA0032E877 /* WebRTCManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebRTCManager.swift; sourceTree = "<group>"; };
+		B9E4B2312D62A9C40032E877 /* accountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = accountView.swift; sourceTree = "<group>"; };
+		B9E4B2322D62A9C40032E877 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		B9E4B2332D62A9C40032E877 /* peripheralView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = peripheralView.swift; sourceTree = "<group>"; };
+		B9E4B2342D62A9C40032E877 /* readView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = readView.swift; sourceTree = "<group>"; };
+		B9E4D2B22D6965B90044F2D4 /* AnySenseLaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = AnySenseLaunchScreen.storyboard; sourceTree = "<group>"; };
+		BA11D17F77459219187F7A30 /* Pods-AnySense.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-AnySense.release.xcconfig"; path = "Target Support Files/Pods-AnySense/Pods-AnySense.release.xcconfig"; sourceTree = "<group>"; };
+		E98E38A27D08BC9D5BE3E2E6 /* Pods-AnySense.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-AnySense.debug.xcconfig"; path = "Target Support Files/Pods-AnySense/Pods-AnySense.debug.xcconfig"; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		B9104F572BFDE63A000D4DDD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B9104F672BFDE63C000D4DDD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B9104F712BFDE63C000D4DDD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		B9104F512BFDE63A000D4DDD = {
+			isa = PBXGroup;
+			children = (
+				B9104F5C2BFDE63A000D4DDD /* AnySense */,
+				B9104F5B2BFDE63A000D4DDD /* Products */,
+				C3E474F763EDD5292D1EE42D /* Pods */,
+			);
+			sourceTree = "<group>";
+		};
+		B9104F5B2BFDE63A000D4DDD /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				B9104F5A2BFDE63A000D4DDD /* AnySense.app */,
+				B9104F6A2BFDE63C000D4DDD /* AnySenseTests.xctest */,
+				B9104F742BFDE63C000D4DDD /* AnySenseUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		B9104F5C2BFDE63A000D4DDD /* AnySense */ = {
+			isa = PBXGroup;
+			children = (
+				B9944A332CFE982E00232FBB /* MainPage.swift */,
+				B997CCD22D4E081300F62B49 /* dataStorage.swift */,
+				B9104F612BFDE63C000D4DDD /* Assets.xcassets */,
+				B997CCD42D4E082900F62B49 /* AnySenseApp.swift */,
+				B98D69632C04911F00648D95 /* Info.plist */,
+				B9E4B22C2D62A9BA0032E877 /* Managers */,
+				B9E4B2352D62A9C40032E877 /* Views */,
+				B9E4D2B22D6965B90044F2D4 /* AnySenseLaunchScreen.storyboard */,
+			);
+			path = AnySense;
+			sourceTree = "<group>";
+		};
+		B9E4B22C2D62A9BA0032E877 /* Managers */ = {
+			isa = PBXGroup;
+			children = (
+				B9E4B2282D62A9BA0032E877 /* ARViewContainer.swift */,
+				B9E4B2292D62A9BA0032E877 /* BluetoothManager.swift */,
+				B9E4B22A2D62A9BA0032E877 /* USBManager.swift */,
+				B9E4B22B2D62A9BA0032E877 /* WebRTCManager.swift */,
+			);
+			path = Managers;
+			sourceTree = "<group>";
+		};
+		B9E4B2352D62A9C40032E877 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				B9E4B2312D62A9C40032E877 /* accountView.swift */,
+				B9E4B2322D62A9C40032E877 /* ContentView.swift */,
+				B9E4B2332D62A9C40032E877 /* peripheralView.swift */,
+				B9E4B2342D62A9C40032E877 /* readView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		C3E474F763EDD5292D1EE42D /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				E98E38A27D08BC9D5BE3E2E6 /* Pods-AnySense.debug.xcconfig */,
+				BA11D17F77459219187F7A30 /* Pods-AnySense.release.xcconfig */,
+			);
+			path = Pods;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		B9104F592BFDE63A000D4DDD /* AnySense */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B9104F7E2BFDE63C000D4DDD /* Build configuration list for PBXNativeTarget "AnySense" */;
+			buildPhases = (
+				A42CDBF7C43F93BDD9CC0D8E /* [CP] Check Pods Manifest.lock */,
+				B9104F562BFDE63A000D4DDD /* Sources */,
+				B9104F572BFDE63A000D4DDD /* Frameworks */,
+				B9104F582BFDE63A000D4DDD /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AnySense;
+			productName = USBInterfaceApp;
+			productReference = B9104F5A2BFDE63A000D4DDD /* AnySense.app */;
+			productType = "com.apple.product-type.application";
+		};
+		B9104F692BFDE63C000D4DDD /* AnySenseTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B9104F812BFDE63C000D4DDD /* Build configuration list for PBXNativeTarget "AnySenseTests" */;
+			buildPhases = (
+				B9104F662BFDE63C000D4DDD /* Sources */,
+				B9104F672BFDE63C000D4DDD /* Frameworks */,
+				B9104F682BFDE63C000D4DDD /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B9104F6C2BFDE63C000D4DDD /* PBXTargetDependency */,
+			);
+			name = AnySenseTests;
+			productName = USBInterfaceAppTests;
+			productReference = B9104F6A2BFDE63C000D4DDD /* AnySenseTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		B9104F732BFDE63C000D4DDD /* AnySenseUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B9104F842BFDE63C000D4DDD /* Build configuration list for PBXNativeTarget "AnySenseUITests" */;
+			buildPhases = (
+				B9104F702BFDE63C000D4DDD /* Sources */,
+				B9104F712BFDE63C000D4DDD /* Frameworks */,
+				B9104F722BFDE63C000D4DDD /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B9104F762BFDE63C000D4DDD /* PBXTargetDependency */,
+			);
+			name = AnySenseUITests;
+			productName = USBInterfaceAppUITests;
+			productReference = B9104F742BFDE63C000D4DDD /* AnySenseUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		B9104F522BFDE63A000D4DDD /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				KnownAssetTags = (
+					New,
+				);
+				LastSwiftUpdateCheck = 1530;
+				LastUpgradeCheck = 1530;
+				TargetAttributes = {
+					B9104F592BFDE63A000D4DDD = {
+						CreatedOnToolsVersion = 15.3;
+					};
+					B9104F692BFDE63C000D4DDD = {
+						CreatedOnToolsVersion = 15.3;
+						TestTargetID = B9104F592BFDE63A000D4DDD;
+					};
+					B9104F732BFDE63C000D4DDD = {
+						CreatedOnToolsVersion = 15.3;
+						TestTargetID = B9104F592BFDE63A000D4DDD;
+					};
+				};
+			};
+			buildConfigurationList = B9104F552BFDE63A000D4DDD /* Build configuration list for PBXProject "AnySense" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = B9104F512BFDE63A000D4DDD;
+			packageReferences = (
+				B98D69592C0486D500648D95 /* XCRemoteSwiftPackageReference "PythonKit" */,
+				B98D69602C048AF100648D95 /* XCRemoteSwiftPackageReference "numpy" */,
+				B905B27B2C88D706006F994E /* XCRemoteSwiftPackageReference "WebRTC-iOS-SDK" */,
+			);
+			productRefGroup = B9104F5B2BFDE63A000D4DDD /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				B9104F592BFDE63A000D4DDD /* AnySense */,
+				B9104F692BFDE63C000D4DDD /* AnySenseTests */,
+				B9104F732BFDE63C000D4DDD /* AnySenseUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		B9104F582BFDE63A000D4DDD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B9104F622BFDE63C000D4DDD /* Assets.xcassets in Resources */,
+				B9E4D2B42D6965B90044F2D4 /* AnySenseLaunchScreen.storyboard in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B9104F682BFDE63C000D4DDD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B9E4D2B52D6965B90044F2D4 /* AnySenseLaunchScreen.storyboard in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B9104F722BFDE63C000D4DDD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B9E4D2B32D6965B90044F2D4 /* AnySenseLaunchScreen.storyboard in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		A42CDBF7C43F93BDD9CC0D8E /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-AnySense-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		B9104F562BFDE63A000D4DDD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B9E4B2362D62A9C40032E877 /* peripheralView.swift in Sources */,
+				B9E4B2372D62A9C40032E877 /* accountView.swift in Sources */,
+				B9E4B2382D62A9C40032E877 /* readView.swift in Sources */,
+				B9E4B2392D62A9C40032E877 /* ContentView.swift in Sources */,
+				B997CCD52D4E082900F62B49 /* AnySenseApp.swift in Sources */,
+				B997CCD32D4E081300F62B49 /* dataStorage.swift in Sources */,
+				B9E4B22D2D62A9BA0032E877 /* BluetoothManager.swift in Sources */,
+				B9E4B22E2D62A9BA0032E877 /* WebRTCManager.swift in Sources */,
+				B9E4B22F2D62A9BA0032E877 /* ARViewContainer.swift in Sources */,
+				B9E4B2302D62A9BA0032E877 /* USBManager.swift in Sources */,
+				B9944A342CFE983300232FBB /* MainPage.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B9104F662BFDE63C000D4DDD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B9104F702BFDE63C000D4DDD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		B9104F6C2BFDE63C000D4DDD /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B9104F592BFDE63A000D4DDD /* AnySense */;
+			targetProxy = B9104F6B2BFDE63C000D4DDD /* PBXContainerItemProxy */;
+		};
+		B9104F762BFDE63C000D4DDD /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B9104F592BFDE63A000D4DDD /* AnySense */;
+			targetProxy = B9104F752BFDE63C000D4DDD /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		B9104F7C2BFDE63C000D4DDD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				INFOPLIST_KEY_NSBluetoothWhileInUseUsageDescription = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.4;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		B9104F7D2BFDE63C000D4DDD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				INFOPLIST_KEY_NSBluetoothWhileInUseUsageDescription = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.4;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		B9104F7F2BFDE63C000D4DDD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = E98E38A27D08BC9D5BE3E2E6 /* Pods-AnySense.debug.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 4;
+				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = 88NB9U5CK6;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				EXCLUDED_ARCHS = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = AnySense/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = AnySense;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "This app can connect to Bluetooth devices to record streaming data from auxiliary sensors.";
+				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "This app can connect to Bluetooth devices to record streaming data from auxiliary sensors.";
+				INFOPLIST_KEY_NSBluetoothWhileInUseUsageDescription = "";
+				INFOPLIST_KEY_NSCameraUsageDescription = "This app needs access to the camera for RGB-D data collection and streaming.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "This app uses microphone data for audio data collection and streaming.";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = AnySenseLaunchScreen.storyboard;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = GRAIL.AnySense;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		B9104F802BFDE63C000D4DDD /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = BA11D17F77459219187F7A30 /* Pods-AnySense.release.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 4;
+				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = 88NB9U5CK6;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = AnySense/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = AnySense;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "This app can connect to Bluetooth devices to record streaming data from auxiliary sensors.";
+				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "This app can connect to Bluetooth devices to record streaming data from auxiliary sensors.";
+				INFOPLIST_KEY_NSBluetoothWhileInUseUsageDescription = "";
+				INFOPLIST_KEY_NSCameraUsageDescription = "This app needs access to the camera for RGB-D data collection and streaming.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "This app uses microphone data for audio data collection and streaming.";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = AnySenseLaunchScreen.storyboard;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = GRAIL.AnySense;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		B9104F822BFDE63C000D4DDD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9U23FMDF45;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.4;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Raunaq.USBInterfaceAppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AnySense.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AnySense";
+			};
+			name = Debug;
+		};
+		B9104F832BFDE63C000D4DDD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9U23FMDF45;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.4;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Raunaq.USBInterfaceAppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AnySense.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AnySense";
+			};
+			name = Release;
+		};
+		B9104F852BFDE63C000D4DDD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9U23FMDF45;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Raunaq.USBInterfaceAppUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = USBInterfaceApp;
+			};
+			name = Debug;
+		};
+		B9104F862BFDE63C000D4DDD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9U23FMDF45;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Raunaq.USBInterfaceAppUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = USBInterfaceApp;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		B9104F552BFDE63A000D4DDD /* Build configuration list for PBXProject "AnySense" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B9104F7C2BFDE63C000D4DDD /* Debug */,
+				B9104F7D2BFDE63C000D4DDD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B9104F7E2BFDE63C000D4DDD /* Build configuration list for PBXNativeTarget "AnySense" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B9104F7F2BFDE63C000D4DDD /* Debug */,
+				B9104F802BFDE63C000D4DDD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B9104F812BFDE63C000D4DDD /* Build configuration list for PBXNativeTarget "AnySenseTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B9104F822BFDE63C000D4DDD /* Debug */,
+				B9104F832BFDE63C000D4DDD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B9104F842BFDE63C000D4DDD /* Build configuration list for PBXNativeTarget "AnySenseUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B9104F852BFDE63C000D4DDD /* Debug */,
+				B9104F862BFDE63C000D4DDD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		B905B27B2C88D706006F994E /* XCRemoteSwiftPackageReference "WebRTC-iOS-SDK" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ant-media/WebRTC-iOS-SDK";
+			requirement = {
+				branch = master;
+				kind = branch;
+			};
+		};
+		B98D69592C0486D500648D95 /* XCRemoteSwiftPackageReference "PythonKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/pvieito/PythonKit";
+			requirement = {
+				branch = master;
+				kind = branch;
+			};
+		};
+		B98D69602C048AF100648D95 /* XCRemoteSwiftPackageReference "numpy" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/numpy/numpy";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+	};
+	rootObject = B9104F522BFDE63A000D4DDD /* Project object */;
+}
