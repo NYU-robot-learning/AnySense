@@ -136,29 +136,6 @@ struct ReadView : View{
                 }
                 
                 
-                .alert(isPresented: $showingAlert) {
-                    switch activeAlert {
-                    case .first:
-                        return Alert(title: Text("Warning")
-                            .foregroundColor(.red),
-                                     message: Text("Your last recorded data will all be deleted, are you sure?"),
-                                     primaryButton: .destructive(Text("Yes")) {
-                            showingAlert = false
-                            deleteRecordedData(url: paths, targetDirect: fileSetNames!.generalDataDirectory)
-                        },
-                                     secondaryButton: .cancel(Text("No")) {
-                            showingAlert = false
-                            
-                        }
-                        )
-                    case .second:
-                        return Alert(title: Text("Warning")
-                            .foregroundColor(.red),
-                                     message: Text("You did not record any data yet!")
-                        )
-                    }
-                }
-                
                 if appStatus.rgbdVideoStreaming == .off{
                     HStack{
                         VStack{
@@ -261,6 +238,30 @@ struct ReadView : View{
             }
         }
         
+        // Alert
+        .alert(isPresented: $showingAlert) {
+                switch activeAlert {
+                case .first:
+                    return Alert(title: Text("Warning")
+                        .foregroundColor(.red),
+                                 message: Text("Your last recorded data will all be deleted, are you sure?"),
+                                 primaryButton: .destructive(Text("Yes")) {
+                        showingAlert = false
+                        deleteRecordedData(url: paths, targetDirect: fileSetNames!.generalDataDirectory)
+                    },
+                                 secondaryButton: .cancel(Text("No")) {
+                        showingAlert = false
+                        
+                    }
+                    )
+                case .second:
+                    return Alert(title: Text("Warning")
+                        .foregroundColor(.red),
+                                 message: Text("You did not record any data yet!")
+                    )
+                }
+        }
+            
         // File exporter, connected to export button
         .fileExporter(
             isPresented: $showingExporter,

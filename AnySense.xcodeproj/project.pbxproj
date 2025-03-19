@@ -12,7 +12,6 @@
 		B997CCD32D4E081300F62B49 /* dataStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B997CCD22D4E081300F62B49 /* dataStorage.swift */; };
 		B997CCD52D4E082900F62B49 /* AnySenseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B997CCD42D4E082900F62B49 /* AnySenseApp.swift */; };
 		B9E4B22D2D62A9BA0032E877 /* BluetoothManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E4B2292D62A9BA0032E877 /* BluetoothManager.swift */; };
-		B9E4B22E2D62A9BA0032E877 /* WebRTCManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E4B22B2D62A9BA0032E877 /* WebRTCManager.swift */; };
 		B9E4B22F2D62A9BA0032E877 /* ARViewContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E4B2282D62A9BA0032E877 /* ARViewContainer.swift */; };
 		B9E4B2302D62A9BA0032E877 /* USBManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E4B22A2D62A9BA0032E877 /* USBManager.swift */; };
 		B9E4B2362D62A9C40032E877 /* peripheralView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E4B2332D62A9C40032E877 /* peripheralView.swift */; };
@@ -53,7 +52,6 @@
 		B9E4B2282D62A9BA0032E877 /* ARViewContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ARViewContainer.swift; sourceTree = "<group>"; };
 		B9E4B2292D62A9BA0032E877 /* BluetoothManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothManager.swift; sourceTree = "<group>"; };
 		B9E4B22A2D62A9BA0032E877 /* USBManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = USBManager.swift; sourceTree = "<group>"; };
-		B9E4B22B2D62A9BA0032E877 /* WebRTCManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebRTCManager.swift; sourceTree = "<group>"; };
 		B9E4B2312D62A9C40032E877 /* accountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = accountView.swift; sourceTree = "<group>"; };
 		B9E4B2322D62A9C40032E877 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B9E4B2332D62A9C40032E877 /* peripheralView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = peripheralView.swift; sourceTree = "<group>"; };
@@ -128,7 +126,6 @@
 				B9E4B2282D62A9BA0032E877 /* ARViewContainer.swift */,
 				B9E4B2292D62A9BA0032E877 /* BluetoothManager.swift */,
 				B9E4B22A2D62A9BA0032E877 /* USBManager.swift */,
-				B9E4B22B2D62A9BA0032E877 /* WebRTCManager.swift */,
 			);
 			path = Managers;
 			sourceTree = "<group>";
@@ -326,7 +323,6 @@
 				B997CCD52D4E082900F62B49 /* AnySenseApp.swift in Sources */,
 				B997CCD32D4E081300F62B49 /* dataStorage.swift in Sources */,
 				B9E4B22D2D62A9BA0032E877 /* BluetoothManager.swift in Sources */,
-				B9E4B22E2D62A9BA0032E877 /* WebRTCManager.swift in Sources */,
 				B9E4B22F2D62A9BA0032E877 /* ARViewContainer.swift in Sources */,
 				B9E4B2302D62A9BA0032E877 /* USBManager.swift in Sources */,
 				B9944A342CFE983300232FBB /* MainPage.swift in Sources */,
