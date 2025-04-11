@@ -25,7 +25,6 @@ struct ReadView : View{
     @State var showingAlert : Bool = false
     @Environment(\.scenePhase) private var phase
     @State private var fileSetNames: RecordingFiles?
-    @State var showingExporter = false
     @State var openFlash = true
     @State private var activeAlert: ActiveAlert = .first
     @State private var isRecordedOnce: Bool = false
@@ -139,32 +138,6 @@ struct ReadView : View{
                 if appStatus.rgbdVideoStreaming == .off{
                     HStack{
                         VStack{
-                            // Export to local button
-                            Button(action: {
-                                if(isRecordedOnce){
-                                    showingExporter.toggle()
-                                } else{
-                                    showingAlert = true
-                                    self.activeAlert = .second
-                                }
-                                UIImpactFeedbackGenerator(style: appStatus.hapticFeedbackLevel).impactOccurred()
-                            }){
-                                Image(systemName: "square.and.arrow.up.circle.fill")
-                                    .resizable()
-                                    .frame(height: 40)
-                                    .frame(width: 40)
-                            }
-                            .padding(.trailing, 8.0)
-                            Text("Export")
-                                .foregroundStyle(.accent)
-                                .font(.caption)
-                                .padding(.trailing, 8.0)
-                            Text("to local")
-                                .foregroundStyle(.accent)
-                                .font(.caption)
-                                .padding(.trailing, 8.0)
-                        }
-                        VStack{
                             // Delete last record button
                             Button(action: {
                                 if(isRecordedOnce){
@@ -195,7 +168,7 @@ struct ReadView : View{
                         }
                     }
 //                    .frame(width: screenWidth / 2.0, alignment: .leading)
-                    .padding(.top, 0.66 * arViewHeight + 0.33 * screenHeight)
+                    .padding(.top, 0.66 * arViewHeight + 0.32 * screenHeight)
                     
                     // Flash light control button
                     VStack{
@@ -260,20 +233,6 @@ struct ReadView : View{
             }
         }
 
-        // File exporter, connected to export button
-        .fileExporter(
-            isPresented: $showingExporter,
-            document: DocumentaryFolder(files: createDocumentaryFolderFiles(paths: paths, fileSetNames: fileSetNames)),
-            contentType: .folder,
-            defaultFilename: fileSetNames?.timestamp
-        ) { result in
-            switch result {
-            case .success(let url):
-                print("Saved to \(url)")
-            case .failure(let error):
-                print(error.localizedDescription)
-            }
-        }
         .onChange(of: appStatus.rgbdVideoStreaming) { oldMode, newMode in
             handleStreamingModeChange(from: oldMode, to: newMode)
         }
