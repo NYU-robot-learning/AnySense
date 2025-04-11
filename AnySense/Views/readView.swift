@@ -113,6 +113,13 @@ struct ReadView : View{
                     .frame(width: 400.0, height: 450.0)
                     .padding()
                 }
+                HStack{
+                    Text("Demos recorded: ")
+                    Text("\(arViewModel.demosCounter)")
+                        .multilineTextAlignment(.leading)
+                }
+                .padding(.top, 0.55 * arViewHeight + 0.2 * screenHeight)
+                
                 VStack {
                     Spacer()
                     HStack {

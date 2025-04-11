@@ -67,6 +67,7 @@ class ARViewModel: ObservableObject{
     var bluetoothManager: BluetoothManager?
     @Published var isOpen : Bool = false
     @Published var depthStatus = DepthStatus()
+    var demosCounter : Int = -1
     var session = ARSession()
     var audioSession = AVCaptureSession()
     var audioCaptureDelegate: AudioCaptureDelegate?
@@ -148,6 +149,7 @@ class ARViewModel: ObservableObject{
         ]
         
         self.ciContext = CIContext()
+        updateDemoCounter()
     }
     
     
@@ -559,6 +561,8 @@ class ARViewModel: ObservableObject{
         } catch {
             print("Error closing pose file")
         }
+        
+        updateDemoCounter()
     }
     
     func setupRecording() -> RecordingFiles? {
@@ -885,6 +889,18 @@ class ARViewModel: ObservableObject{
         let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
         print(paths[0].path)
         return paths[0]
+    }
+    
+    func updateDemoCounter() {
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
+        do{
+            let contents = try FileManager.default.contentsOfDirectory(at: documentsURL[0], includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants])
+            print(contents.count)
+            demosCounter = contents.count
+            print(demosCounter)
+        } catch {
+            print("Error reading directory contents: \(error)")
+        }
     }
     
 }
