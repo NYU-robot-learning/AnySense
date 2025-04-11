@@ -124,21 +124,33 @@ struct ReadView : View{
                     Spacer()
                     HStack {
                         Spacer()
-                        Button(action: {
-                            toggleRecording(mode:appStatus.rgbdVideoStreaming)
-                            isRecordedOnce = true
-                        }) {
-                            Image(systemName: isReading ? "stop.circle" : "record.circle")
+                        ZStack{
+                            Image(systemName: "circle")
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
                                 .frame(height: buttonSize)
                                 .frame(width: buttonSize)
+                                .foregroundStyle(.deviceWord)
                                 .multilineTextAlignment(.center)
+                            Button(action: {
+                                toggleRecording(mode:appStatus.rgbdVideoStreaming)
+                                isRecordedOnce = true
+                            }) {
+                                Image(systemName: isReading ? "square.fill" : "circle.fill")
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(height: buttonSize - 10)
+                                    .frame(width: buttonSize - 10)
+                                    .multilineTextAlignment(.center)
+                                    .foregroundStyle(Color.red)
+                            }
+                            .buttonStyle(scaleButtonStyle(isRecording: $isReading))
                         }
                         .padding(.bottom, arViewPadding / 4.0 - (buttonSize / 4.0))
                         Spacer()
                     }
                 }
+                
                 
                 
                 if appStatus.rgbdVideoStreaming == .off{
@@ -225,6 +237,7 @@ struct ReadView : View{
                              primaryButton: .destructive(Text("Yes")) {
                     showingAlert = false
                     deleteRecordedData(url: paths, targetDirect: fileSetNames!.generalDataDirectory)
+                    arViewModel.updateDemoCounter()
                 },
                              secondaryButton: .cancel(Text("No")) {
                     showingAlert = false
@@ -246,6 +259,14 @@ struct ReadView : View{
             initCode()
         }
     }
+    }
+    
+    // Custom scale effect for the animation of record button
+    struct scaleButtonStyle : ButtonStyle {
+        @Binding var isRecording: Bool
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label.scaleEffect(isRecording ? 0.35 : 1)
+        }
     }
     
     private func initCode() {
