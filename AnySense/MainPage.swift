@@ -9,7 +9,6 @@ import SwiftUI
 
 struct MainPage: View {
     @EnvironmentObject private var appStatus : AppInformation
-    @EnvironmentObject private var bluetoothManager: BluetoothManager
     @Environment(\.scenePhase) private var phase
     let arViewModel: ARViewModel
     // Start the default page be the read page
@@ -18,7 +17,7 @@ struct MainPage: View {
     var body: some View {
         TabView(selection: $selection){
             Group{
-                PeripheralView()
+                PeripheralView(arViewModel: arViewModel, bluetoothManager: arViewModel.getBLEManagerInstance())
                     .tabItem {
                         Label("ble-device", systemImage: "iphone.gen1.radiowaves.left.and.right")
                 }
@@ -49,5 +48,4 @@ struct MainPage: View {
 #Preview {
     MainPage(arViewModel: ARViewModel())
         .environmentObject(AppInformation())
-        .environmentObject(BluetoothManager())
 }

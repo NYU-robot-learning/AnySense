@@ -19,7 +19,6 @@ enum ActiveAlert {
 
 struct ReadView : View{
     @EnvironmentObject var appStatus : AppInformation
-    @EnvironmentObject var bluetoothManager: BluetoothManager
     @ObservedObject var arViewModel: ARViewModel
     @State private var isReading = false
     @State var showingAlert : Bool = false
@@ -267,13 +266,13 @@ struct ReadView : View{
             if mode == .off {
                 if isReading {
                     fileSetNames = arViewModel.startRecording()
-                    if(bluetoothManager.ifConnected){
+                    if(arViewModel.getBLEManagerInstance().ifConnected){
                         startRecordingBT(targetURL: fileSetNames!.tactileFile)
                     }
                     
 //                    print(fileSetNames)
                 } else {
-                    if(bluetoothManager.ifConnected){
+                    if(arViewModel.getBLEManagerInstance().ifConnected){
                         stopRecordingBT()
                         print("This stop recording is when shared bluetooth manager is connected")
                     }
@@ -323,14 +322,14 @@ struct ReadView : View{
             print("Error creating tactile file.")
         }
         
-        bluetoothManager.startRecording(
+        arViewModel.getBLEManagerInstance().startRecording(
             targetURL: targetURL,
             fps: appStatus.animationFPS
         )
     }
 
     func stopRecordingBT() {
-        bluetoothManager.stopRecording()
+        arViewModel.getBLEManagerInstance().stopRecording()
     }
     
     

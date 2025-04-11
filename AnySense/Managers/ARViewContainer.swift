@@ -64,6 +64,7 @@ class DepthStatus: ObservableObject {
 }
 
 class ARViewModel: ObservableObject{
+    var bluetoothManager: BluetoothManager?
     @Published var isOpen : Bool = false
     @Published var depthStatus = DepthStatus()
     var session = ARSession()
@@ -122,6 +123,8 @@ class ARViewModel: ObservableObject{
     private var audioOutputSettings: [String: Any] = [:]
     
     init() {
+        bluetoothManager = BluetoothManager()
+        
         self.rgbAttributes = [
             kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32ARGB),
             kCVPixelBufferWidthKey as String: Int(viewPortSize.width),
@@ -148,6 +151,10 @@ class ARViewModel: ObservableObject{
     }
     
     
+    func getBLEManagerInstance() -> BluetoothManager{
+        return bluetoothManager!;
+    }
+
     
     private func setupAudioSession() {
         guard let audioDevice = AVCaptureDevice.default(for: .audio),
