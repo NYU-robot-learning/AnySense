@@ -103,6 +103,7 @@ class AppInformation : ObservableObject{
     @Published var gridProjectionTrigger: GridMode = .off
     @Published var colorMapTrigger: Bool = false
     @Published var ifBluetoothConnected: Bool = false
+    @Published var ifAudioRecordingEnabled: Bool = false
 }
 
 

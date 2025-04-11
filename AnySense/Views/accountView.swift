@@ -48,6 +48,9 @@ struct SettingsView : View{
                     .padding(.vertical, 5)
                     .padding(.vertical, 5)
                     HStack{
+                        Toggle("Audio recording enabled", isOn: $appStatus.ifAudioRecordingEnabled)
+                    }
+                    HStack{
                             Text("Buttons haptic feedback")
                             .font(.body)
                             .foregroundColor(.primary)

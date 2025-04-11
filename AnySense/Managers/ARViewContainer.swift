@@ -72,6 +72,7 @@ class ARViewModel: ObservableObject{
 
     public var userFPS: Double?
     public var isColorMapOpened = false
+    public var ifAudioEnable = false
     private var usbManager = USBManager()
     
     private var orientation: UIInterfaceOrientation = .portrait
@@ -230,7 +231,9 @@ class ARViewModel: ObservableObject{
     func setupARSession() {
         self.startARSession()
         
-        setupAudioSession()
+        if(ifAudioEnable) {
+            setupAudioSession()
+        }
         
         setupTransforms()
 
@@ -504,7 +507,9 @@ class ARViewModel: ObservableObject{
         assetWriter?.startSession(atSourceTime: startTime!)
         
         DispatchQueue.global(qos: .background).async {
-            self.audioSession.startRunning()
+            if(self.ifAudioEnable) {
+                self.audioSession.startRunning()
+            }
         }
         if self.depthStatus.isDepthAvailable {
             depthAssetWriter?.startWriting()
@@ -523,8 +528,10 @@ class ARViewModel: ObservableObject{
     func stopRecording(){
         displayLink?.invalidate()
         displayLink = nil
-        audioSession.stopRunning()
-        audioInput?.markAsFinished()
+        if(ifAudioEnable) {
+            audioSession.stopRunning()
+            audioInput?.markAsFinished()
+        }
         videoInput?.markAsFinished()
         
         audioCaptureDelegate = nil
@@ -613,20 +620,22 @@ class ARViewModel: ObservableObject{
             self.videoInput?.expectsMediaDataInRealTime = true
             self.assetWriter?.add(videoInput!)
             
-            self.audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioOutputSettings)
-            self.audioInput?.expectsMediaDataInRealTime = true
-            self.assetWriter?.add(audioInput!)
+            if(ifAudioEnable) {
+                self.audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioOutputSettings)
+                self.audioInput?.expectsMediaDataInRealTime = true
+                self.assetWriter?.add(audioInput!)
+                
+                // Update the audio delegate with the new audioWriterInput
+                self.audioCaptureDelegate = AudioCaptureDelegate(writerInput: audioInput!)
+
+                // Attach the new delegate to the existing AVCaptureAudioDataOutput
+                if let audioOutput = self.audioSession.outputs.first(where: { $0 is AVCaptureAudioDataOutput }) as? AVCaptureAudioDataOutput {
+                    let audioQueue = DispatchQueue(label: "AudioProcessingQueue")
+                    audioOutput.setSampleBufferDelegate(self.audioCaptureDelegate, queue: audioQueue)
+                }
+            }
             
             self.pixelBufferAdapter = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: videoInput!, sourcePixelBufferAttributes: rgbAttributes)
-            
-            // Update the audio delegate with the new audioWriterInput
-            self.audioCaptureDelegate = AudioCaptureDelegate(writerInput: audioInput!)
-
-            // Attach the new delegate to the existing AVCaptureAudioDataOutput
-            if let audioOutput = self.audioSession.outputs.first(where: { $0 is AVCaptureAudioDataOutput }) as? AVCaptureAudioDataOutput {
-                let audioQueue = DispatchQueue(label: "AudioProcessingQueue")
-                audioOutput.setSampleBufferDelegate(self.audioCaptureDelegate, queue: audioQueue)
-            }
             
             if self.depthStatus.isDepthAvailable {
                 setupDepthRecording(depthVideoURL: depthVideoURL)
