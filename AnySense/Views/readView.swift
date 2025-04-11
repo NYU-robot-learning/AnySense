@@ -255,9 +255,6 @@ struct ReadView : View{
         case (_, .off):
             arViewModel.killUSBStreaming()
             print("Switched to \(newMode): ARView is active.")
-
-        case (_, .wifi):
-            print("NOT IMPLEMENTED.")
         case (_, .usb):
             print("Switched to \(newMode): ARView is hidden.")
             arViewModel.setupUSBStreaming()
