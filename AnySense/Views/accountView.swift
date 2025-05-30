@@ -6,6 +6,8 @@
 //
 
 import SwiftUI
+import CoreBluetooth
+import AVFoundation
 
 struct SettingsView : View{
     @EnvironmentObject var appStatus: AppInformation
@@ -76,6 +78,20 @@ struct SettingsView : View{
                                 .foregroundStyle(.gray)
                         }
                     }
+                    HStack {
+                        VStack(alignment: .leading, spacing: 8) {
+                            // Title and caption
+                            Text("ResNet Classification")
+                                .font(.body) // Regular font
+                                .foregroundColor(.primary)
+                            Text("Inferencing on-device")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+                        Spacer()
+                        Toggle("", isOn: $appStatus.mlInferenceEnabled)
+                    }
+                    .padding(.vertical, 5)
                     
                 }
 //                Section(header: Text("INFO")) {

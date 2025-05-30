@@ -103,6 +103,7 @@ class AppInformation : ObservableObject{
     @Published var colorMapTrigger: Bool = false
     @Published var ifBluetoothConnected: Bool = false
     @Published var ifAudioRecordingEnabled: Bool = false
+    @Published var mlInferenceEnabled: Bool = false
 }
 
 

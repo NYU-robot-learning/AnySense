@@ -71,6 +71,9 @@ class ARViewModel: ObservableObject{
     var session = ARSession()
     var audioSession = AVCaptureSession()
     var audioCaptureDelegate: AudioCaptureDelegate?
+    
+    // ML Inference Manager
+    @Published var mlManager = MLInferenceManager()
 
     public var userFPS: Double?
     public var isColorMapOpened = false
@@ -413,7 +416,11 @@ class ARViewModel: ObservableObject{
         guard let currentFrame = session.currentFrame else {return}
         
         let rgbPixelBuffer = currentFrame.capturedImage
-//        TODO: Check if we need to change this at all
+
+        // Perform ML inference on the RGB frame during streaming
+        mlManager.performInference(on: rgbPixelBuffer, timestamp: CACurrentMediaTime())
+
+        // TODO: Check if we need to change this at all
         var depthPixelBuffer: CVPixelBuffer? = nil
         var depthConfidencePixelBuffer: CVPixelBuffer? = nil
         if self.depthStatus.isDepthAvailable {
@@ -864,6 +871,9 @@ class ARViewModel: ObservableObject{
             guard let depthBuffer = currentFrame.sceneDepth?.depthMap else { return }
             depthPixelBuffer = depthBuffer
         }
+        
+        // Perform ML inference on the RGB frame
+        mlManager.performInference(on: rgbPixelBuffer, timestamp: CACurrentMediaTime())
         
         let cropRect = CGRect(
             x: 0, y: 0, width: self.viewPortSize.width, height: self.viewPortSize.height

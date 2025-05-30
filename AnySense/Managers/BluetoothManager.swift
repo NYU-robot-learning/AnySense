@@ -21,7 +21,26 @@ class BluetoothManager :  NSObject, ObservableObject{
         super.init()
         self.centralManager = CBCentralManager(delegate: self, queue: .main)
     }
-
+    
+    // MARK: - Cleanup
+    deinit {
+        // Clean up CADisplayLink to prevent retain cycles
+        displayLink?.invalidate()
+        displayLink = nil
+        
+        // Clean up file handles
+        try? BTFileHandle?.close()
+        BTFileHandle = nil
+        
+        // Disconnect from any connected peripherals
+        disconnectFromDevice()
+        
+        // Stop scanning
+        centralManager?.stopScan()
+        centralManager = nil
+        
+        print("🧹 BluetoothManager deinitialized and cleaned up")
+    }
 }
 
 extension BluetoothManager: CBCentralManagerDelegate{

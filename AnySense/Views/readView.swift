@@ -52,6 +52,20 @@ struct ReadView : View{
                     .padding(.bottom, arViewPadding)
                     .opacity(appStatus.rgbdVideoStreaming == .off ? 1 : 0)
                     .allowsHitTesting(appStatus.rgbdVideoStreaming == .off) // Disable interaction in streaming mode
+                
+                // ML Inference Results Overlay
+                if appStatus.rgbdVideoStreaming == .off && appStatus.mlInferenceEnabled && arViewModel.mlManager.isInferenceEnabled {
+                    VStack {
+                        HStack {
+                            MLInferenceResultsView(mlManager: arViewModel.mlManager)
+                            Spacer()
+                        }
+                        Spacer()
+                    }
+                    .frame(width: arViewWidth, height: arViewHeight)
+                    .padding(.bottom, arViewPadding)
+                }
+                
                 if appStatus.rgbdVideoStreaming == .off {
                     Text(appStatus.ifBluetoothConnected ? "bluetooth device connected" : "bluetooth device disconnected")
                         .font(.footnote)
@@ -255,6 +269,13 @@ struct ReadView : View{
         .onChange(of: appStatus.rgbdVideoStreaming) { oldMode, newMode in
             handleStreamingModeChange(from: oldMode, to: newMode)
         }
+        .onChange(of: appStatus.mlInferenceEnabled) { oldValue, newValue in
+            if newValue {
+                arViewModel.mlManager.enableInference()
+            } else {
+                arViewModel.mlManager.disableInference()
+            }
+        }
         .onAppear {
             initCode()
         }
@@ -272,6 +293,13 @@ struct ReadView : View{
     private func initCode() {
         arViewModel.isColorMapOpened = appStatus.colorMapTrigger
         arViewModel.userFPS = appStatus.animationFPS
+        
+        // Sync ML inference setting
+        if appStatus.mlInferenceEnabled {
+            arViewModel.mlManager.enableInference()
+        } else {
+            arViewModel.mlManager.disableInference()
+        }
     }
     
     private func handleStreamingModeChange(from oldMode: StreamingMode, to newMode: StreamingMode) {

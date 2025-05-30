@@ -3,10 +3,12 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 70;
 	objects = {
 
 /* Begin PBXBuildFile section */
+		01F5B7C42DEA697200061B16 /* MLInferenceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F5B7C32DEA697200061B16 /* MLInferenceManager.swift */; };
+		01F5B7C62DEA698D00061B16 /* MLInferenceResultsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F5B7C52DEA698D00061B16 /* MLInferenceResultsView.swift */; };
 		B9104F622BFDE63C000D4DDD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B9104F612BFDE63C000D4DDD /* Assets.xcassets */; };
 		B9944A342CFE983300232FBB /* MainPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9944A332CFE982E00232FBB /* MainPage.swift */; };
 		B997CCD32D4E081300F62B49 /* dataStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B997CCD22D4E081300F62B49 /* dataStorage.swift */; };
@@ -41,6 +43,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		01F5B7C32DEA697200061B16 /* MLInferenceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLInferenceManager.swift; sourceTree = "<group>"; };
+		01F5B7C52DEA698D00061B16 /* MLInferenceResultsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLInferenceResultsView.swift; sourceTree = "<group>"; };
 		B9104F5A2BFDE63A000D4DDD /* AnySense.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AnySense.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B9104F612BFDE63C000D4DDD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B9104F6A2BFDE63C000D4DDD /* AnySenseTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AnySenseTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -60,6 +64,10 @@
 		BA11D17F77459219187F7A30 /* Pods-AnySense.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-AnySense.release.xcconfig"; path = "Target Support Files/Pods-AnySense/Pods-AnySense.release.xcconfig"; sourceTree = "<group>"; };
 		E98E38A27D08BC9D5BE3E2E6 /* Pods-AnySense.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-AnySense.debug.xcconfig"; path = "Target Support Files/Pods-AnySense/Pods-AnySense.debug.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		01981E6C2DEA655900773CE6 /* Models */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Models; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		B9104F572BFDE63A000D4DDD /* Frameworks */ = {
@@ -108,6 +116,7 @@
 		B9104F5C2BFDE63A000D4DDD /* AnySense */ = {
 			isa = PBXGroup;
 			children = (
+				01981E6C2DEA655900773CE6 /* Models */,
 				B9944A332CFE982E00232FBB /* MainPage.swift */,
 				B997CCD22D4E081300F62B49 /* dataStorage.swift */,
 				B9104F612BFDE63C000D4DDD /* Assets.xcassets */,
@@ -124,6 +133,7 @@
 			isa = PBXGroup;
 			children = (
 				B9E4B2282D62A9BA0032E877 /* ARViewContainer.swift */,
+				01F5B7C32DEA697200061B16 /* MLInferenceManager.swift */,
 				B9E4B2292D62A9BA0032E877 /* BluetoothManager.swift */,
 				B9E4B22A2D62A9BA0032E877 /* USBManager.swift */,
 			);
@@ -133,6 +143,7 @@
 		B9E4B2352D62A9C40032E877 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				01F5B7C52DEA698D00061B16 /* MLInferenceResultsView.swift */,
 				B9E4B2312D62A9C40032E877 /* accountView.swift */,
 				B9E4B2322D62A9C40032E877 /* ContentView.swift */,
 				B9E4B2332D62A9C40032E877 /* peripheralView.swift */,
@@ -165,6 +176,9 @@
 			buildRules = (
 			);
 			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				01981E6C2DEA655900773CE6 /* Models */,
 			);
 			name = AnySense;
 			productName = USBInterfaceApp;
@@ -322,9 +336,11 @@
 				B9E4B2392D62A9C40032E877 /* ContentView.swift in Sources */,
 				B997CCD52D4E082900F62B49 /* AnySenseApp.swift in Sources */,
 				B997CCD32D4E081300F62B49 /* dataStorage.swift in Sources */,
+				01F5B7C42DEA697200061B16 /* MLInferenceManager.swift in Sources */,
 				B9E4B22D2D62A9BA0032E877 /* BluetoothManager.swift in Sources */,
 				B9E4B22F2D62A9BA0032E877 /* ARViewContainer.swift in Sources */,
 				B9E4B2302D62A9BA0032E877 /* USBManager.swift in Sources */,
+				01F5B7C62DEA698D00061B16 /* MLInferenceResultsView.swift in Sources */,
 				B9944A342CFE983300232FBB /* MainPage.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -490,7 +506,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_ASSET_PATHS = "";
-				DEVELOPMENT_TEAM = 88NB9U5CK6;
+				DEVELOPMENT_TEAM = 57DF45Y5K2;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				EXCLUDED_ARCHS = "";
@@ -513,7 +529,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = GRAIL.AnySense;
+				PRODUCT_BUNDLE_IDENTIFIER = Krish.AnySenseTest;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -536,7 +552,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_ASSET_PATHS = "";
-				DEVELOPMENT_TEAM = 88NB9U5CK6;
+				DEVELOPMENT_TEAM = 57DF45Y5K2;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -558,7 +574,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = GRAIL.AnySense;
+				PRODUCT_BUNDLE_IDENTIFIER = Krish.AnySenseTest;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -577,7 +593,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 9U23FMDF45;
+				DEVELOPMENT_TEAM = 57DF45Y5K2;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.4;
@@ -597,7 +613,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 9U23FMDF45;
+				DEVELOPMENT_TEAM = 57DF45Y5K2;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.4;
@@ -616,7 +632,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 9U23FMDF45;
+				DEVELOPMENT_TEAM = 57DF45Y5K2;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
@@ -634,7 +650,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 9U23FMDF45;
+				DEVELOPMENT_TEAM = 57DF45Y5K2;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
