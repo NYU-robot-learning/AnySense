@@ -27,4 +27,4 @@ AnySense data storage format:
 ## Contact me
 Questions about AnySense? Contact: raunaqbhirangi@nyu.edu
 
-The team at Generalizable Robotics and AI Lab, NYU: [Raunaq Bhirangi](https://raunaqbhirangi.nyu.edu), Zeyu (Michael) Bian, [Venkatesh Pattabiraman](https://venkyp.com), [Haritheja Etukuru](https://haritheja.com), [Mehmet Enes Erciyes](https://eneserciyes.github.io), [Nur Muhammad Mahi Shafiullah](https://mahis.life), [Lerrel Pinto](https://www.lerrelpinto.com)
+The team at Generalizable Robotics and AI Lab, NYU: [Raunaq Bhirangi](https://raunaqbhirangi.github.io/), Zeyu (Michael) Bian, [Venkatesh Pattabiraman](https://venkyp.com), [Haritheja Etukuru](https://haritheja.com), [Mehmet Enes Erciyes](https://eneserciyes.github.io), [Nur Muhammad Mahi Shafiullah](https://mahis.life), [Lerrel Pinto](https://www.lerrelpinto.com)
