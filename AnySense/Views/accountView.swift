@@ -81,10 +81,10 @@ struct SettingsView : View{
                     HStack {
                         VStack(alignment: .leading, spacing: 8) {
                             // Title and caption
-                            Text("ResNet Classification")
+                            Text("Pick Up Policy")
                                 .font(.body) // Regular font
                                 .foregroundColor(.primary)
-                            Text("Inferencing on-device")
+                            Text("Object picking on-device")
                                 .font(.caption)
                                 .foregroundColor(.gray)
                         }

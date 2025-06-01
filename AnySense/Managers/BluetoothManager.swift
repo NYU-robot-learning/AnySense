@@ -22,7 +22,7 @@ class BluetoothManager :  NSObject, ObservableObject{
         self.centralManager = CBCentralManager(delegate: self, queue: .main)
     }
     
-    // MARK: - Cleanup
+    // Cleanup
     deinit {
         // Clean up CADisplayLink to prevent retain cycles
         displayLink?.invalidate()
@@ -39,7 +39,7 @@ class BluetoothManager :  NSObject, ObservableObject{
         centralManager?.stopScan()
         centralManager = nil
         
-        print("🧹 BluetoothManager deinitialized and cleaned up")
+        print("BluetoothManager deinitialized and cleaned up")
     }
 }
 
