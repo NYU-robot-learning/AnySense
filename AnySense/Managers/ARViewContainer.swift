@@ -64,14 +64,17 @@ class DepthStatus: ObservableObject {
 }
 
 class ARViewModel: ObservableObject{
+    var bluetoothManager: BluetoothManager?
     @Published var isOpen : Bool = false
     @Published var depthStatus = DepthStatus()
+    var demosCounter : Int = -1
     var session = ARSession()
     var audioSession = AVCaptureSession()
     var audioCaptureDelegate: AudioCaptureDelegate?
 
     public var userFPS: Double?
     public var isColorMapOpened = false
+    public var ifAudioEnable = false
     private var usbManager = USBManager()
     
     private var orientation: UIInterfaceOrientation = .portrait
@@ -121,6 +124,8 @@ class ARViewModel: ObservableObject{
     private var audioOutputSettings: [String: Any] = [:]
     
     init() {
+        bluetoothManager = BluetoothManager()
+        
         self.rgbAttributes = [
             kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32ARGB),
             kCVPixelBufferWidthKey as String: Int(viewPortSize.width),
@@ -144,9 +149,14 @@ class ARViewModel: ObservableObject{
         ]
         
         self.ciContext = CIContext()
+        updateDemoCounter()
     }
     
     
+    func getBLEManagerInstance() -> BluetoothManager{
+        return bluetoothManager!;
+    }
+
     
     private func setupAudioSession() {
         guard let audioDevice = AVCaptureDevice.default(for: .audio),
@@ -504,7 +514,9 @@ class ARViewModel: ObservableObject{
         assetWriter?.startSession(atSourceTime: startTime!)
         
         DispatchQueue.global(qos: .background).async {
-            self.audioSession.startRunning()
+            if(self.ifAudioEnable) {
+                self.audioSession.startRunning()
+            }
         }
         if self.depthStatus.isDepthAvailable {
             depthAssetWriter?.startWriting()
@@ -523,8 +535,10 @@ class ARViewModel: ObservableObject{
     func stopRecording(){
         displayLink?.invalidate()
         displayLink = nil
-        audioSession.stopRunning()
-        audioInput?.markAsFinished()
+        if(ifAudioEnable) {
+            audioSession.stopRunning()
+            audioInput?.markAsFinished()
+        }
         videoInput?.markAsFinished()
         
         audioCaptureDelegate = nil
@@ -545,6 +559,8 @@ class ARViewModel: ObservableObject{
         } catch {
             print("Error closing pose file")
         }
+        
+        updateDemoCounter()
     }
     
     func setupRecording() -> RecordingFiles? {
@@ -613,20 +629,22 @@ class ARViewModel: ObservableObject{
             self.videoInput?.expectsMediaDataInRealTime = true
             self.assetWriter?.add(videoInput!)
             
-            self.audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioOutputSettings)
-            self.audioInput?.expectsMediaDataInRealTime = true
-            self.assetWriter?.add(audioInput!)
+            if(ifAudioEnable) {
+                self.audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioOutputSettings)
+                self.audioInput?.expectsMediaDataInRealTime = true
+                self.assetWriter?.add(audioInput!)
+                
+                // Update the audio delegate with the new audioWriterInput
+                self.audioCaptureDelegate = AudioCaptureDelegate(writerInput: audioInput!)
+
+                // Attach the new delegate to the existing AVCaptureAudioDataOutput
+                if let audioOutput = self.audioSession.outputs.first(where: { $0 is AVCaptureAudioDataOutput }) as? AVCaptureAudioDataOutput {
+                    let audioQueue = DispatchQueue(label: "AudioProcessingQueue")
+                    audioOutput.setSampleBufferDelegate(self.audioCaptureDelegate, queue: audioQueue)
+                }
+            }
             
             self.pixelBufferAdapter = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: videoInput!, sourcePixelBufferAttributes: rgbAttributes)
-            
-            // Update the audio delegate with the new audioWriterInput
-            self.audioCaptureDelegate = AudioCaptureDelegate(writerInput: audioInput!)
-
-            // Attach the new delegate to the existing AVCaptureAudioDataOutput
-            if let audioOutput = self.audioSession.outputs.first(where: { $0 is AVCaptureAudioDataOutput }) as? AVCaptureAudioDataOutput {
-                let audioQueue = DispatchQueue(label: "AudioProcessingQueue")
-                audioOutput.setSampleBufferDelegate(self.audioCaptureDelegate, queue: audioQueue)
-            }
             
             if self.depthStatus.isDepthAvailable {
                 setupDepthRecording(depthVideoURL: depthVideoURL)
@@ -869,6 +887,18 @@ class ARViewModel: ObservableObject{
         let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
         print(paths[0].path)
         return paths[0]
+    }
+    
+    func updateDemoCounter() {
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
+        do{
+            let contents = try FileManager.default.contentsOfDirectory(at: documentsURL[0], includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants])
+            print(contents.count)
+            demosCounter = contents.count
+            print(demosCounter)
+        } catch {
+            print("Error reading directory contents: \(error)")
+        }
     }
     
 }

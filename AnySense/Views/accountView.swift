@@ -32,13 +32,10 @@ struct SettingsView : View{
                         let binding = Binding<StreamingMode>(
                             get: { appStatus.rgbdVideoStreaming },
                             set: { newValue in
-                                if newValue != StreamingMode.wifi { // Disable Option wifi
-                                    appStatus.rgbdVideoStreaming = newValue
-                                }
+                                appStatus.rgbdVideoStreaming = newValue
                             }
                         )
-                        Picker("Streaming Options", selection: binding) { // Temporary fix to keep wifi option but disable it
-                            Text("Wi-Fi").tag(StreamingMode.wifi).opacity(0.5)
+                        Picker("Streaming Options", selection: binding) { //
                             Text("USB").tag(StreamingMode.usb)
                             Text("Off").tag(StreamingMode.off)
                         }
@@ -47,6 +44,9 @@ struct SettingsView : View{
                     }
                     .padding(.vertical, 5)
                     .padding(.vertical, 5)
+                    HStack{
+                        Toggle("Audio recording", isOn: $appStatus.ifAudioRecordingEnabled)
+                    }
                     HStack{
                             Text("Buttons haptic feedback")
                             .font(.body)
@@ -108,7 +108,6 @@ struct SettingsView : View{
 
 enum StreamingMode: String {
     case off = "Off"
-    case wifi = "Wi-Fi"
     case usb = "USB"
 }
 

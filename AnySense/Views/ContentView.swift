@@ -11,7 +11,6 @@ import AVFoundation
 
 struct ContentView: View {
     @EnvironmentObject var appStatus : AppInformation
-    @EnvironmentObject var bluetoothManager: BluetoothManager
     @StateObject private var arViewModel = ARViewModel()
     
     @State private var hasPermissions = false
@@ -103,6 +102,7 @@ class AppInformation : ObservableObject{
     @Published var gridProjectionTrigger: GridMode = .off
     @Published var colorMapTrigger: Bool = false
     @Published var ifBluetoothConnected: Bool = false
+    @Published var ifAudioRecordingEnabled: Bool = false
 }
 
 

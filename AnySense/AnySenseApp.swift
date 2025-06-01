@@ -11,12 +11,10 @@ import BackgroundTasks
 @main
 struct AnySenseApp: App {
     @StateObject var appStatus = AppInformation()
-    @StateObject var bluetoothManager = BluetoothManager()
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(appStatus)
-                .environmentObject(bluetoothManager)
         }
     }
 }

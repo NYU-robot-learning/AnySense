@@ -19,16 +19,15 @@ enum ActiveAlert {
 
 struct ReadView : View{
     @EnvironmentObject var appStatus : AppInformation
-    @EnvironmentObject var bluetoothManager: BluetoothManager
     @ObservedObject var arViewModel: ARViewModel
     @State private var isReading = false
     @State var showingAlert : Bool = false
     @Environment(\.scenePhase) private var phase
     @State private var fileSetNames: RecordingFiles?
-    @State var showingExporter = false
     @State var openFlash = true
     @State private var activeAlert: ActiveAlert = .first
     @State private var isRecordedOnce: Bool = false
+    
     var body : some View{
         let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
         GeometryReader { geometry in
@@ -115,20 +114,38 @@ struct ReadView : View{
                     .frame(width: 400.0, height: 450.0)
                     .padding()
                 }
+                HStack{
+                    Text("Demos recorded: ")
+                    Text("\(arViewModel.demosCounter)")
+                        .multilineTextAlignment(.leading)
+                }
+                .padding(.top, 0.55 * arViewHeight + 0.2 * screenHeight)
+                
                 VStack {
                     Spacer()
                     HStack {
                         Spacer()
-                        Button(action: {
-                            toggleRecording(mode:appStatus.rgbdVideoStreaming)
-                            isRecordedOnce = true
-                        }) {
-                            Image(systemName: isReading ? "stop.circle" : "record.circle")
+                        ZStack{
+                            Image(systemName: "circle")
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
                                 .frame(height: buttonSize)
                                 .frame(width: buttonSize)
+                                .foregroundStyle(.deviceWord)
                                 .multilineTextAlignment(.center)
+                            Button(action: {
+                                toggleRecording(mode:appStatus.rgbdVideoStreaming)
+                                isRecordedOnce = true
+                            }) {
+                                Image(systemName: isReading ? "square.fill" : "circle.fill")
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(height: buttonSize - 10)
+                                    .frame(width: buttonSize - 10)
+                                    .multilineTextAlignment(.center)
+                                    .foregroundStyle(Color.red)
+                            }
+                            .buttonStyle(scaleButtonStyle(isRecording: $isReading))
                         }
                         .padding(.bottom, arViewPadding / 4.0 - (buttonSize / 4.0))
                         Spacer()
@@ -136,34 +153,9 @@ struct ReadView : View{
                 }
                 
                 
+                
                 if appStatus.rgbdVideoStreaming == .off{
                     HStack{
-                        VStack{
-                            // Export to local button
-                            Button(action: {
-                                if(isRecordedOnce){
-                                    showingExporter.toggle()
-                                } else{
-                                    showingAlert = true
-                                    self.activeAlert = .second
-                                }
-                                UIImpactFeedbackGenerator(style: appStatus.hapticFeedbackLevel).impactOccurred()
-                            }){
-                                Image(systemName: "square.and.arrow.up.circle.fill")
-                                    .resizable()
-                                    .frame(height: 40)
-                                    .frame(width: 40)
-                            }
-                            .padding(.trailing, 8.0)
-                            Text("Export")
-                                .foregroundStyle(.accent)
-                                .font(.caption)
-                                .padding(.trailing, 8.0)
-                            Text("to local")
-                                .foregroundStyle(.accent)
-                                .font(.caption)
-                                .padding(.trailing, 8.0)
-                        }
                         VStack{
                             // Delete last record button
                             Button(action: {
@@ -195,7 +187,7 @@ struct ReadView : View{
                         }
                     }
 //                    .frame(width: screenWidth / 2.0, alignment: .leading)
-                    .padding(.top, 0.66 * arViewHeight + 0.33 * screenHeight)
+                    .padding(.top, 0.66 * arViewHeight + 0.32 * screenHeight)
                     
                     // Flash light control button
                     VStack{
@@ -246,6 +238,7 @@ struct ReadView : View{
                              primaryButton: .destructive(Text("Yes")) {
                     showingAlert = false
                     deleteRecordedData(url: paths, targetDirect: fileSetNames!.generalDataDirectory)
+                    arViewModel.updateDemoCounter()
                 },
                              secondaryButton: .cancel(Text("No")) {
                     showingAlert = false
@@ -260,27 +253,24 @@ struct ReadView : View{
             }
         }
 
-        // File exporter, connected to export button
-        .fileExporter(
-            isPresented: $showingExporter,
-            document: DocumentaryFolder(files: createDocumentaryFolderFiles(paths: paths, fileSetNames: fileSetNames)),
-            contentType: .folder,
-            defaultFilename: fileSetNames?.timestamp
-        ) { result in
-            switch result {
-            case .success(let url):
-                print("Saved to \(url)")
-            case .failure(let error):
-                print(error.localizedDescription)
-            }
-        }
         .onChange(of: appStatus.rgbdVideoStreaming) { oldMode, newMode in
             handleStreamingModeChange(from: oldMode, to: newMode)
+        }
+        .onChange(of: appStatus.ifAudioRecordingEnabled) { _, newValue in
+            arViewModel.ifAudioEnable = newValue
         }
         .onAppear {
             initCode()
         }
     }
+    }
+    
+    // Custom scale effect for the animation of record button
+    struct scaleButtonStyle : ButtonStyle {
+        @Binding var isRecording: Bool
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label.scaleEffect(isRecording ? 0.35 : 1)
+        }
     }
     
     private func initCode() {
@@ -296,9 +286,6 @@ struct ReadView : View{
         case (_, .off):
             arViewModel.killUSBStreaming()
             print("Switched to \(newMode): ARView is active.")
-
-        case (_, .wifi):
-            print("NOT IMPLEMENTED.")
         case (_, .usb):
             print("Switched to \(newMode): ARView is hidden.")
             arViewModel.setupUSBStreaming()
@@ -311,13 +298,13 @@ struct ReadView : View{
             if mode == .off {
                 if isReading {
                     fileSetNames = arViewModel.startRecording()
-                    if(bluetoothManager.ifConnected){
+                    if(arViewModel.getBLEManagerInstance().ifConnected){
                         startRecordingBT(targetURL: fileSetNames!.tactileFile)
                     }
                     
 //                    print(fileSetNames)
                 } else {
-                    if(bluetoothManager.ifConnected){
+                    if(arViewModel.getBLEManagerInstance().ifConnected){
                         stopRecordingBT()
                         print("This stop recording is when shared bluetooth manager is connected")
                     }
@@ -367,14 +354,14 @@ struct ReadView : View{
             print("Error creating tactile file.")
         }
         
-        bluetoothManager.startRecording(
+        arViewModel.getBLEManagerInstance().startRecording(
             targetURL: targetURL,
             fps: appStatus.animationFPS
         )
     }
 
     func stopRecordingBT() {
-        bluetoothManager.stopRecording()
+        arViewModel.getBLEManagerInstance().stopRecording()
     }
     
     
