@@ -240,9 +240,7 @@ class ARViewModel: ObservableObject{
     func setupARSession() {
         self.startARSession()
         
-        if(ifAudioEnable) {
-            setupAudioSession()
-        }
+        setupAudioSession()
         
         setupTransforms()
 

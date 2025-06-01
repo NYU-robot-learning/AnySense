@@ -27,6 +27,7 @@ struct ReadView : View{
     @State var openFlash = true
     @State private var activeAlert: ActiveAlert = .first
     @State private var isRecordedOnce: Bool = false
+    
     var body : some View{
         let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
         GeometryReader { geometry in
@@ -254,6 +255,9 @@ struct ReadView : View{
 
         .onChange(of: appStatus.rgbdVideoStreaming) { oldMode, newMode in
             handleStreamingModeChange(from: oldMode, to: newMode)
+        }
+        .onChange(of: appStatus.ifAudioRecordingEnabled) { _, newValue in
+            arViewModel.ifAudioEnable = newValue
         }
         .onAppear {
             initCode()
