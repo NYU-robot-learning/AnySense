@@ -13,8 +13,7 @@ import QuartzCore
 
 // MARK: - ML Inference Results
 struct InferenceResult {
-    let prediction: String
-    let confidence: Float
+    let jointActions: [Float]  // 7 joint action values
     let inferenceTime: TimeInterval
 }
 
@@ -161,21 +160,11 @@ class MLInferenceManager: ObservableObject {
             return
         }
         
-        let count = min(resultArray.count, 100) // Limit to prevent memory issues
-        let rawOutput = (0..<count).map { resultArray[$0].floatValue }
-        
-        guard let maxValue = rawOutput.max(),
-              let maxIndex = rawOutput.firstIndex(of: maxValue) else {
-            print("Failed to process model output")
-            return
-        }
-        
-        let prediction = "Pick Action \(maxIndex)"
-        let confidence = min(max(maxValue, 0.0), 1.0) // Clamp between 0 and 1
+        // Extract the 7 joint action values
+        let jointActions = (0..<min(resultArray.count, 7)).map { resultArray[$0].floatValue }
         
         let result = InferenceResult(
-            prediction: prediction,
-            confidence: confidence,
+            jointActions: jointActions,
             inferenceTime: inferenceTime
         )
         
@@ -184,7 +173,8 @@ class MLInferenceManager: ObservableObject {
             self?.latestResult = result
         }
         
-        print("Pick Up Policy: \(prediction) (\(String(format: "%.1f", confidence * 100))%) - \(String(format: "%.1f", inferenceTime * 1000))ms")
+        let actionString = jointActions.map { String(format: "%.3f", $0) }.joined(separator: ", ")
+        print("Robot Joint Actions: [\(actionString)] - \(String(format: "%.1f", inferenceTime * 1000))ms")
     }
     
     // MARK: - Control Methods
