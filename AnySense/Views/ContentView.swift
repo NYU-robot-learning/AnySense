@@ -109,6 +109,8 @@ class AppInformation : ObservableObject{
 #Preview {
     ContentView()
         .environmentObject(AppInformation())
+        .environmentObject(BluetoothManager())
+        .environmentObject(VolumeButtonManager())
 }
 
 

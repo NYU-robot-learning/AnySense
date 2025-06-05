@@ -7,14 +7,19 @@
 
 import SwiftUI
 import BackgroundTasks
+
     
 @main
 struct AnySenseApp: App {
     @StateObject var appStatus = AppInformation()
+    @StateObject var bluetoothManager = BluetoothManager()
+    @StateObject var volumeButtonManager = VolumeButtonManager()
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(appStatus)
+                .environmentObject(bluetoothManager)
+                .environmentObject(volumeButtonManager)
         }
     }
 }

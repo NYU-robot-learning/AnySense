@@ -12,6 +12,7 @@ import BackgroundTasks
 import UserNotifications
 import Foundation
 import AVFoundation
+import Combine
 
 enum ActiveAlert {
     case first, second
@@ -19,6 +20,8 @@ enum ActiveAlert {
 
 struct ReadView : View{
     @EnvironmentObject var appStatus : AppInformation
+    @EnvironmentObject var bluetoothManager: BluetoothManager
+    @EnvironmentObject var volumeButtonManager: VolumeButtonManager
     @ObservedObject var arViewModel: ARViewModel
     @State private var isReading = false
     @State var showingAlert : Bool = false
@@ -259,6 +262,10 @@ struct ReadView : View{
         .onChange(of: appStatus.ifAudioRecordingEnabled) { _, newValue in
             arViewModel.ifAudioEnable = newValue
         }
+        .onReceive(volumeButtonManager.buttonPressed) { _ in
+            toggleRecording(mode: appStatus.rgbdVideoStreaming)
+            isRecordedOnce = true
+        }
         .onAppear {
             initCode()
         }
@@ -400,5 +407,7 @@ struct ReadView : View{
 #Preview {
     ReadView(arViewModel: ARViewModel())
         .environmentObject(AppInformation())
+        .environmentObject(BluetoothManager())
+        .environmentObject(VolumeButtonManager())
 }
     
