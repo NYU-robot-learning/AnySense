@@ -76,7 +76,12 @@ struct SettingsView : View{
                                 .foregroundStyle(.gray)
                         }
                     }
-                    
+                    Toggle("Bimanual mode", isOn: $appStatus.bimanualMode)
+                    if appStatus.bimanualMode {
+                        Toggle("Right hand", isOn: $appStatus.rightHand)
+                            .padding(.leading, 20)
+                    }
+
                 }
 //                Section(header: Text("INFO")) {
 //                    NavigationLink {

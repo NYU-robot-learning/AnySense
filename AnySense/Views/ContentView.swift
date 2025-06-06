@@ -103,6 +103,8 @@ class AppInformation : ObservableObject{
     @Published var colorMapTrigger: Bool = false
     @Published var ifBluetoothConnected: Bool = false
     @Published var ifAudioRecordingEnabled: Bool = false
+    @Published var bimanualMode: Bool = false
+    @Published var rightHand: Bool = false
 }
 
 
