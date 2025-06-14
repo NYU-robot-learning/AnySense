@@ -12,21 +12,30 @@ import BackgroundTasks
 import UserNotifications
 import Foundation
 import AVFoundation
+import Combine
 
 enum ActiveAlert {
     case first, second
 }
 
+enum RecordingPhase {
+    case idle
+    case registration
+    case recording
+}
+
 struct ReadView : View{
     @EnvironmentObject var appStatus : AppInformation
+    @EnvironmentObject var bluetoothManager: BluetoothManager
+    @EnvironmentObject var volumeButtonManager: VolumeButtonManager
     @ObservedObject var arViewModel: ARViewModel
-    @State private var isReading = false
     @State var showingAlert : Bool = false
     @Environment(\.scenePhase) private var phase
     @State private var fileSetNames: RecordingFiles?
     @State var openFlash = true
     @State private var activeAlert: ActiveAlert = .first
     @State private var isRecordedOnce: Bool = false
+    @State private var recordingState: RecordingPhase = .idle
     
     var body : some View{
         let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
@@ -53,6 +62,12 @@ struct ReadView : View{
                     .padding(.bottom, arViewPadding)
                     .opacity(appStatus.rgbdVideoStreaming == .off ? 1 : 0)
                     .allowsHitTesting(appStatus.rgbdVideoStreaming == .off) // Disable interaction in streaming mode
+                if appStatus.bimanualMode && appStatus.rightHand && recordingState == .registration {
+                    Image("ArUcoMarker")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: arViewWidth * 1.0, height: arViewWidth * 1.0)
+                }
                 if appStatus.rgbdVideoStreaming == .off {
                     Text(appStatus.ifBluetoothConnected ? "bluetooth device connected" : "bluetooth device disconnected")
                         .font(.footnote)
@@ -137,7 +152,7 @@ struct ReadView : View{
                                 toggleRecording(mode:appStatus.rgbdVideoStreaming)
                                 isRecordedOnce = true
                             }) {
-                                Image(systemName: isReading ? "square.fill" : "circle.fill")
+                                Image(systemName: recordingState == .idle ? "circle.fill" : "square.fill")
                                     .resizable()
                                     .aspectRatio(contentMode: .fit)
                                     .frame(height: buttonSize - 10)
@@ -145,7 +160,7 @@ struct ReadView : View{
                                     .multilineTextAlignment(.center)
                                     .foregroundStyle(Color.red)
                             }
-                            .buttonStyle(scaleButtonStyle(isRecording: $isReading))
+                            .buttonStyle(scaleButtonStyle(isRecording: .constant(recordingState != .idle)))
                         }
                         .padding(.bottom, arViewPadding / 4.0 - (buttonSize / 4.0))
                         Spacer()
@@ -259,6 +274,10 @@ struct ReadView : View{
         .onChange(of: appStatus.ifAudioRecordingEnabled) { _, newValue in
             arViewModel.ifAudioEnable = newValue
         }
+        .onReceive(volumeButtonManager.buttonPressed) { _ in
+            toggleRecording(mode: appStatus.rgbdVideoStreaming)
+            isRecordedOnce = true
+        }
         .onAppear {
             initCode()
         }
@@ -279,7 +298,7 @@ struct ReadView : View{
     }
     
     private func handleStreamingModeChange(from oldMode: StreamingMode, to newMode: StreamingMode) {
-        if isReading {
+        if recordingState != .idle {
             toggleRecording(mode: oldMode)
         }
         switch (oldMode, newMode) {
@@ -293,35 +312,41 @@ struct ReadView : View{
     }
     
     func toggleRecording(mode: StreamingMode) {
-        isReading = !isReading
-        if arViewModel.isOpen {
-            if mode == .off {
-                if isReading {
+        switch recordingState {
+        case .idle:
+            if appStatus.bimanualMode {
+                recordingState = .registration
+            } else {
+                recordingState = .recording
+            }
+            if arViewModel.isOpen {
+                if mode == .off {
                     fileSetNames = arViewModel.startRecording()
                     if(arViewModel.getBLEManagerInstance().ifConnected){
                         startRecordingBT(targetURL: fileSetNames!.tactileFile)
                     }
-                    
-//                    print(fileSetNames)
-                } else {
+                } else if mode == .usb {
+                    arViewModel.startUSBStreaming()
+                }
+            }
+        case .registration:
+            recordingState = .recording
+        case .recording:
+            recordingState = .idle
+            if arViewModel.isOpen {
+                if mode == .off {
                     if(arViewModel.getBLEManagerInstance().ifConnected){
                         stopRecordingBT()
                         print("This stop recording is when shared bluetooth manager is connected")
                     }
                     arViewModel.stopRecording()
-                    
-                }
-            }
-            else if mode == .usb {
-                if isReading {
-                    arViewModel.startUSBStreaming()
-                } else {
+                } else if mode == .usb {
                     arViewModel.stopUSBStreaming()
                 }
             }
         }
         UIImpactFeedbackGenerator(style: appStatus.hapticFeedbackLevel).impactOccurred()
-                    
+
     }
 
     
@@ -400,5 +425,7 @@ struct ReadView : View{
 #Preview {
     ReadView(arViewModel: ARViewModel())
         .environmentObject(AppInformation())
+        .environmentObject(BluetoothManager())
+        .environmentObject(VolumeButtonManager())
 }
     

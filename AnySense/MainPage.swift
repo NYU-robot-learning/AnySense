@@ -48,4 +48,6 @@ struct MainPage: View {
 #Preview {
     MainPage(arViewModel: ARViewModel())
         .environmentObject(AppInformation())
+        .environmentObject(BluetoothManager())
+        .environmentObject(VolumeButtonManager())
 }
