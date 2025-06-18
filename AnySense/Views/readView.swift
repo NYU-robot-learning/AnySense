@@ -45,7 +45,10 @@ struct ReadView : View{
             Color.customizedBackground
                 .ignoresSafeArea()
             ZStack{
-                ARViewContainer(session: arViewModel.session)
+                ARViewContainer(
+                    session: arViewModel.session,
+                    arVisualizationManager: arViewModel.arVisualizationManager
+                )
                     .edgesIgnoringSafeArea(.all)
                     .frame(width: arViewWidth, height: arViewHeight)
                 // .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
@@ -54,10 +57,12 @@ struct ReadView : View{
                     .allowsHitTesting(appStatus.rgbdVideoStreaming == .off) // Disable interaction in streaming mode
                 
                 // ML Inference Results Overlay
-                if appStatus.rgbdVideoStreaming == .off && appStatus.mlInferenceEnabled && arViewModel.mlManager.isInferenceEnabled {
+                if appStatus.rgbdVideoStreaming == .off && appStatus.mlInferenceEnabled && arViewModel.mlManager?.isInferenceEnabled == true {
                     VStack {
                         HStack {
-                            MLInferenceResultsView(mlManager: arViewModel.mlManager)
+                            if let mlManager = arViewModel.mlManager {
+                                MLInferenceResultsView(mlManager: mlManager)
+                            }
                             Spacer()
                         }
                         Spacer()
@@ -271,9 +276,9 @@ struct ReadView : View{
         }
         .onChange(of: appStatus.mlInferenceEnabled) { oldValue, newValue in
             if newValue {
-                arViewModel.mlManager.enableInference()
+                arViewModel.mlManager?.enableInference()
             } else {
-                arViewModel.mlManager.disableInference()
+                arViewModel.mlManager?.disableInference()
             }
         }
         .onAppear {
@@ -296,9 +301,9 @@ struct ReadView : View{
         
         // Sync ML inference setting
         if appStatus.mlInferenceEnabled {
-            arViewModel.mlManager.enableInference()
+            arViewModel.mlManager?.enableInference()
         } else {
-            arViewModel.mlManager.disableInference()
+            arViewModel.mlManager?.disableInference()
         }
     }
     

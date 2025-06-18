@@ -11,6 +11,7 @@ struct MainPage: View {
     @EnvironmentObject private var appStatus : AppInformation
     @Environment(\.scenePhase) private var phase
     let arViewModel: ARViewModel
+    let modelManager: ModelManager
     // Start the default page be the read page
     @State private var selection = 1
     
@@ -30,7 +31,7 @@ struct MainPage: View {
                     .tag(1)
                 
                 
-                SettingsView()
+                SettingsView(arViewModel: arViewModel, modelManager: modelManager)
                     .tabItem {
                         Label("settings", systemImage: "gear")
             
@@ -46,6 +47,6 @@ struct MainPage: View {
 }
 
 #Preview {
-    MainPage(arViewModel: ARViewModel())
+    MainPage(arViewModel: ARViewModel(), modelManager: ModelManager())
         .environmentObject(AppInformation())
 }

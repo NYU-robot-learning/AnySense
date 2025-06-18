@@ -37,6 +37,7 @@ func createFile(fileURL: URL) throws {
 
 struct ARViewContainer: UIViewRepresentable {
     var session: ARSession
+    var arVisualizationManager: ARVisualizationManager
     typealias UIViewType = ARView
     
     func makeUIView(context: Context) -> ARView {
@@ -44,6 +45,10 @@ struct ARViewContainer: UIViewRepresentable {
         let arView = ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
         arView.session = session
         arView.environment.sceneUnderstanding.options = [] // No extra scene understanding
+        
+        // Setup AR visualization with the created ARView
+        arVisualizationManager.setupVisualization(with: arView)
+        
         return arView
     }
     func updateUIView(_ uiView: ARView, context: Context) {
@@ -72,8 +77,11 @@ class ARViewModel: ObservableObject{
     var audioSession = AVCaptureSession()
     var audioCaptureDelegate: AudioCaptureDelegate?
     
-    // ML Inference Manager
-    @Published var mlManager = MLInferenceManager()
+    // ML Inference Manager - now optional and initialized later
+    @Published var mlManager: MLInferenceManager?
+    
+    // AR Visualization Manager for 3D pose visualization
+    @Published var arVisualizationManager = ARVisualizationManager()
 
     public var userFPS: Double?
     public var isColorMapOpened = false
@@ -401,7 +409,7 @@ class ARViewModel: ObservableObject{
         CVPixelBufferLockBaseAddress(outputBuffer, [])
         
         let depthCiImage = CIImage(cvPixelBuffer: depthPixelBuffer)
-        let depthTransformedImage = depthCiImage.transformed(by: self.combinedDepthTransform!)
+        let depthTransformedImage = depthCiImage.transformed(by: self.combinedDepthTransform ?? CGAffineTransform.identity)
         self.ciContext.render(depthTransformedImage, to: outputBuffer)
         
         let compressedData = self.usbManager.compressData(from: outputBuffer, isDepth: isDepth)
@@ -418,7 +426,7 @@ class ARViewModel: ObservableObject{
         let rgbPixelBuffer = currentFrame.capturedImage
 
         // Perform ML inference on the RGB frame during streaming
-        mlManager.performInference(on: rgbPixelBuffer, timestamp: CACurrentMediaTime())
+        mlManager?.performInference(on: rgbPixelBuffer, timestamp: CACurrentMediaTime())
 
         // TODO: Check if we need to change this at all
         var depthPixelBuffer: CVPixelBuffer? = nil
@@ -518,6 +526,9 @@ class ARViewModel: ObservableObject{
     func startRecording() -> RecordingFiles {
         let saveFileNames = setupRecording()
         
+        // Start AR pose visualization with origin at current camera position
+        arVisualizationManager.startRecordingVisualization()
+        
         assetWriter?.startWriting()
         startTime = CMTimeMake(value: Int64(CACurrentMediaTime() * 1000), timescale: 1000)
         assetWriter?.startSession(atSourceTime: startTime!)
@@ -544,6 +555,10 @@ class ARViewModel: ObservableObject{
     func stopRecording(){
         displayLink?.invalidate()
         displayLink = nil
+        
+        // Stop AR pose visualization
+        arVisualizationManager.stopRecordingVisualization()
+        
         if(ifAudioEnable) {
             audioSession.stopRunning()
             audioInput?.markAsFinished()
@@ -830,7 +845,7 @@ class ARViewModel: ObservableObject{
                 print("❌ Failed to apply false color filter to depth image.")
             }
         }
-        return filteredImage.transformed(by: self.combinedDepthTransform!) //.cropped(to: cropRect)
+        return filteredImage.transformed(by: self.combinedDepthTransform ?? CGAffineTransform.identity) //.cropped(to: cropRect)
     }
     
     private func saveBinaryDepthData(depthPixelBuffer: CVPixelBuffer) {
@@ -873,7 +888,7 @@ class ARViewModel: ObservableObject{
         }
         
         // Perform ML inference on the RGB frame
-        mlManager.performInference(on: rgbPixelBuffer, timestamp: CACurrentMediaTime())
+        mlManager?.performInference(on: rgbPixelBuffer, timestamp: CACurrentMediaTime())
         
         let cropRect = CGRect(
             x: 0, y: 0, width: self.viewPortSize.width, height: self.viewPortSize.height
@@ -911,6 +926,18 @@ class ARViewModel: ObservableObject{
         } catch {
             print("Error reading directory contents: \(error)")
         }
+    }
+    
+    // MARK: - Model Manager Integration
+    func initializeMLManager(with modelManager: ModelManager) {
+        self.mlManager = MLInferenceManager(modelManager: modelManager)
+        
+        // Connect AR visualization to ML inference
+        self.mlManager?.arVisualizationManager = self.arVisualizationManager
+        
+        print("Initialized ML Inference Manager with Model Manager")
+        print("Connected AR Visualization Manager to ML Inference")
+        print("🔗 ML-AR Connection: \(self.mlManager?.arVisualizationManager != nil ? "✅ Connected" : "❌ Failed")")
     }
     
 }
