@@ -20,7 +20,6 @@ enum ActiveAlert {
 
 enum RecordingPhase {
     case idle
-    case registration
     case recording
 }
 
@@ -62,15 +61,6 @@ struct ReadView : View{
                     .padding(.bottom, arViewPadding)
                     .opacity(appStatus.rgbdVideoStreaming == .off ? 1 : 0)
                     .allowsHitTesting(appStatus.rgbdVideoStreaming == .off) // Disable interaction in streaming mode
-                if appStatus.bimanualMode && recordingState == .registration {
-                    Text(arViewModel.collaborationMessage.isEmpty ? "Waiting for peer..." : arViewModel.collaborationMessage)
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .padding()
-                        .background(Color.black.opacity(0.6))
-                        .cornerRadius(8)
-                        .padding(.top, 20)
-                }
                 if appStatus.rgbdVideoStreaming == .off {
                     Text(appStatus.ifBluetoothConnected ? "bluetooth device connected" : "bluetooth device disconnected")
                         .font(.footnote)
@@ -79,6 +69,15 @@ struct ReadView : View{
                         .background(appStatus.ifBluetoothConnected ? .green : .red)
                         .padding(.bottom, arViewPadding + arViewHeight + btBarHeight)
                         .ignoresSafeArea()
+                    if appStatus.bimanualMode {
+                        Text(arViewModel.collaborationMessage.isEmpty ? "Waiting for peer..." : arViewModel.collaborationMessage)
+                            .font(.footnote)
+                            .foregroundColor(.white)
+                            .frame(width: screenWidth, height: btBarHeight)
+                            .background(.black)
+                            .padding(.bottom, arViewPadding + arViewHeight)
+                            .ignoresSafeArea()
+                    }
                     if appStatus.gridProjectionTrigger.rawValue > 0 {
                         VStack {
                             Path { path in
@@ -317,13 +316,7 @@ struct ReadView : View{
     func toggleRecording(mode: StreamingMode) {
         switch recordingState {
         case .idle:
-            if appStatus.bimanualMode {
-                recordingState = .registration
-                // Start AR session with collaboration enabled for bimanual mode
-                // arViewModel.startARSession(collaborative: true)
-            } else {
-                recordingState = .recording
-            }
+            recordingState = .recording
             if arViewModel.isOpen {
                 if mode == .off {
                     fileSetNames = arViewModel.startRecording()
@@ -334,8 +327,6 @@ struct ReadView : View{
                     arViewModel.startUSBStreaming()
                 }
             }
-        case .registration:
-            recordingState = .recording
         case .recording:
             recordingState = .idle
             if arViewModel.isOpen {

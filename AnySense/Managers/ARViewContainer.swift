@@ -256,13 +256,13 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
     }
     
     func setupARSession() {
-        self.startARSession(collaborative: true)
+        self.startARSession(collaborative: true, reset: true)
         setupAudioSession()
         setupTransforms()
         print("Finished setting up ARViewModel.")
     }
 
-    func startARSession(collaborative: Bool = false) {
+    func startARSession(collaborative: Bool = false, reset: Bool = false) {
         let status = AVCaptureDevice.authorizationStatus(for: .video)
             guard status == .authorized else {
                 print("Camera permissions not granted.")
@@ -296,8 +296,11 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
         if collaborative {
             configuration.isCollaborationEnabled = true
         }
-        // session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
-        session.run(configuration)
+        if reset {
+            session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+        } else {
+            session.run(configuration)
+        }
         isOpen = true
 
         if collaborative {
