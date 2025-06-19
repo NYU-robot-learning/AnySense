@@ -96,15 +96,52 @@ class PermissionsManager {
 
 
 class AppInformation : ObservableObject{
-    @Published var animationFPS: Double = 30.0
-    @Published var hapticFeedbackLevel: UIImpactFeedbackGenerator.FeedbackStyle = .medium
-    @Published var rgbdVideoStreaming: StreamingMode = .off
-    @Published var gridProjectionTrigger: GridMode = .off
-    @Published var colorMapTrigger: Bool = false
+    @Published var animationFPS: Double {
+        didSet { UserDefaults.standard.set(animationFPS, forKey: "animationFPS") }
+    }
+    @Published var hapticFeedbackLevelRaw: Int {
+        didSet { UserDefaults.standard.set(hapticFeedbackLevelRaw, forKey: "hapticFeedbackLevel") }
+    }
+    var hapticFeedbackLevel: UIImpactFeedbackGenerator.FeedbackStyle {
+        get { UIImpactFeedbackGenerator.FeedbackStyle(rawValue: hapticFeedbackLevelRaw) ?? .medium }
+        set { hapticFeedbackLevelRaw = newValue.rawValue }
+    }
+    @Published var rgbdVideoStreaming: StreamingMode {
+        didSet { UserDefaults.standard.set(rgbdVideoStreaming.rawValue, forKey: "rgbdVideoStreaming") }
+    }
+    @Published var gridProjectionTrigger: GridMode {
+        didSet { UserDefaults.standard.set(gridProjectionTrigger.rawValue, forKey: "gridProjectionTrigger") }
+    }
+    @Published var colorMapTrigger: Bool {
+        didSet { UserDefaults.standard.set(colorMapTrigger, forKey: "colorMapTrigger") }
+    }
     @Published var ifBluetoothConnected: Bool = false
-    @Published var ifAudioRecordingEnabled: Bool = false
-    @Published var bimanualMode: Bool = false
-    @Published var rightHand: Bool = false
+    @Published var ifAudioRecordingEnabled: Bool {
+        didSet { UserDefaults.standard.set(ifAudioRecordingEnabled, forKey: "ifAudioRecordingEnabled") }
+    }
+    @Published var bimanualMode: Bool {
+        didSet { UserDefaults.standard.set(bimanualMode, forKey: "bimanualMode") }
+    }
+    @Published var rightHand: Bool {
+        didSet { UserDefaults.standard.set(rightHand, forKey: "rightHand") }
+    }
+
+    init() {
+        let defaults = UserDefaults.standard
+        self.animationFPS = defaults.object(forKey: "animationFPS") as? Double ?? 30.0
+        self.hapticFeedbackLevelRaw = defaults.object(forKey: "hapticFeedbackLevel") as? Int ?? UIImpactFeedbackGenerator.FeedbackStyle.medium.rawValue
+        if let raw = defaults.string(forKey: "rgbdVideoStreaming"), let mode = StreamingMode(rawValue: raw) {
+            self.rgbdVideoStreaming = mode
+        } else {
+            self.rgbdVideoStreaming = .off
+        }
+        let gridRaw = defaults.integer(forKey: "gridProjectionTrigger")
+        self.gridProjectionTrigger = GridMode(rawValue: gridRaw) ?? .off
+        self.colorMapTrigger = defaults.bool(forKey: "colorMapTrigger")
+        self.ifAudioRecordingEnabled = defaults.bool(forKey: "ifAudioRecordingEnabled")
+        self.bimanualMode = defaults.bool(forKey: "bimanualMode")
+        self.rightHand = defaults.bool(forKey: "rightHand")
+    }
 }
 
 
