@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1F1691BD2E04B44D0022BC25 /* MessageLabelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F1691BC2E04B44D0022BC25 /* MessageLabelView.swift */; };
 		1FC99A7A2E0215DB000B7FE2 /* MultipeerSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FC99A792E0215DB000B7FE2 /* MultipeerSession.swift */; };
 		1FC99A7C2E021688000B7FE2 /* Utilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FC99A7B2E021688000B7FE2 /* Utilities.swift */; };
 		1FC99A7F2E0216A3000B7FE2 /* VolumeButtonManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FC99A7E2E0216A3000B7FE2 /* VolumeButtonManager.swift */; };
@@ -44,6 +45,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		1F1691BC2E04B44D0022BC25 /* MessageLabelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageLabelView.swift; sourceTree = "<group>"; };
 		1FC99A792E0215DB000B7FE2 /* MultipeerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultipeerSession.swift; sourceTree = "<group>"; };
 		1FC99A7B2E021688000B7FE2 /* Utilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utilities.swift; sourceTree = "<group>"; };
 		1FC99A7E2E0216A3000B7FE2 /* VolumeButtonManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeButtonManager.swift; sourceTree = "<group>"; };
@@ -142,6 +144,7 @@
 		B9E4B2352D62A9C40032E877 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				1F1691BC2E04B44D0022BC25 /* MessageLabelView.swift */,
 				B9E4B2312D62A9C40032E877 /* accountView.swift */,
 				B9E4B2322D62A9C40032E877 /* ContentView.swift */,
 				B9E4B2332D62A9C40032E877 /* peripheralView.swift */,
@@ -328,6 +331,7 @@
 				1FC99A7A2E0215DB000B7FE2 /* MultipeerSession.swift in Sources */,
 				B9E4B2362D62A9C40032E877 /* peripheralView.swift in Sources */,
 				B9E4B2372D62A9C40032E877 /* accountView.swift in Sources */,
+				1F1691BD2E04B44D0022BC25 /* MessageLabelView.swift in Sources */,
 				B9E4B2382D62A9C40032E877 /* readView.swift in Sources */,
 				B9E4B2392D62A9C40032E877 /* ContentView.swift in Sources */,
 				B997CCD52D4E082900F62B49 /* AnySenseApp.swift in Sources */,

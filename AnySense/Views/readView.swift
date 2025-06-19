@@ -70,11 +70,8 @@ struct ReadView : View{
                         .padding(.bottom, arViewPadding + arViewHeight + btBarHeight)
                         .ignoresSafeArea()
                     if appStatus.bimanualMode {
-                        Text(arViewModel.collaborationMessage.isEmpty ? "Waiting for peer..." : arViewModel.collaborationMessage)
-                            .font(.footnote)
-                            .foregroundColor(.white)
-                            .frame(width: screenWidth, height: btBarHeight)
-                            .background(.black)
+                        MessageLabelView(message: $arViewModel.collaborationMessage)
+                            .frame(width: screenWidth)
                             .padding(.bottom, arViewPadding + arViewHeight)
                             .ignoresSafeArea()
                     }
