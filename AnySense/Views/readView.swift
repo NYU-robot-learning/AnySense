@@ -148,7 +148,7 @@ struct ReadView : View{
                                 .foregroundStyle(.deviceWord)
                                 .multilineTextAlignment(.center)
                             Button(action: {
-                                toggleRecording(mode:appStatus.rgbdVideoStreaming)
+                                toggleRecording(mode: appStatus.rgbdVideoStreaming)
                                 isRecordedOnce = true
                             }) {
                                 Image(systemName: recordingState == .idle ? "circle.fill" : "square.fill")
@@ -157,9 +157,11 @@ struct ReadView : View{
                                     .frame(height: buttonSize - 10)
                                     .frame(width: buttonSize - 10)
                                     .multilineTextAlignment(.center)
-                                    .foregroundStyle(Color.red)
+                                    .foregroundStyle(appStatus.bimanualMode && !arViewModel.isPeerAnchorTracked ? Color.gray : Color.red)
                             }
                             .buttonStyle(scaleButtonStyle(isRecording: .constant(recordingState != .idle)))
+                            .disabled(appStatus.bimanualMode && !arViewModel.isPeerAnchorTracked)
+                            .opacity(appStatus.bimanualMode && !arViewModel.isPeerAnchorTracked ? 0.5 : 1.0)
                         }
                         .padding(.bottom, arViewPadding / 4.0 - (buttonSize / 4.0))
                         Spacer()

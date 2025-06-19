@@ -132,6 +132,7 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
     var sessionIDObservation: NSKeyValueObservation?
     weak var arView: ARView?
     @Published var collaborationMessage: String = ""
+    @Published var isPeerAnchorTracked: Bool = false
     
     override init() {
         self.ciContext = CIContext()
@@ -302,6 +303,7 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
             session.run(configuration)
         }
         isOpen = true
+        isPeerAnchorTracked = false
 
         if collaborative {
             sessionIDObservation = session.observe(\.identifier, options: [.new]) { session, change in
@@ -381,6 +383,7 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
         print("Peer left: \(peer.displayName)")
         DispatchQueue.main.async {
             self.collaborationMessage = "Peer left: \(peer.displayName)"
+            self.isPeerAnchorTracked = false
         }
         
         // Remove all ARAnchors associated with the peer that left
@@ -396,6 +399,7 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
                 print("Established joint experience with a peer.")
                 DispatchQueue.main.async {
                     self.collaborationMessage = "Established joint experience with a peer."
+                    self.isPeerAnchorTracked = true
                 }
                 
                 // Only proceed if we have an AR view
@@ -446,12 +450,14 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
     func pauseARSession(){
         session.pause()
         isOpen = false
+        isPeerAnchorTracked = false
     }
     
     func killARSession() {
         session.pause() // Pause before releasing resources
         session = ARSession() // Replace with a new ARSession
         isOpen = false
+        isPeerAnchorTracked = false
         print("ARSession killed and reset.")
     }
     
