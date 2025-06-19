@@ -187,17 +187,31 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate, ARCoachingOver
         overlay.delegate = self
         overlay.goal = .tracking
         overlay.activatesAutomatically = false
-        overlay.translatesAutoresizingMaskIntoConstraints = false
+        overlay.translatesAutoresizingMaskIntoConstraints = true
+        overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        overlay.frame = arView.bounds
         arView.addSubview(overlay)
-        NSLayoutConstraint.activate([
-            overlay.centerXAnchor.constraint(equalTo: arView.centerXAnchor),
-            overlay.centerYAnchor.constraint(equalTo: arView.centerYAnchor),
-            overlay.widthAnchor.constraint(equalTo: arView.widthAnchor),
-            overlay.heightAnchor.constraint(equalTo: arView.heightAnchor)
-        ])
         self.coachingOverlay = overlay
-        if isBimanualModeEnabled && !isPeerAnchorTracked {
-            overlay.setActive(true, animated: true)
+        updateCoachingOverlay()
+    }
+
+    private func updateCoachingOverlay() {
+        guard let overlay = coachingOverlay else { return }
+        let hasPeer = !(multipeerSession?.connectedPeers.isEmpty ?? true)
+        DispatchQueue.main.async {
+            if self.isBimanualModeEnabled {
+                if hasPeer && !self.isPeerAnchorTracked {
+                    overlay.isHidden = false
+                    overlay.setActive(true, animated: true)
+                } else {
+                    overlay.isHidden = true
+                    if !hasPeer {
+                        self.collaborationMessage = "Looking for another device..."
+                    }
+                }
+            } else {
+                overlay.isHidden = true
+            }
         }
     }
 
@@ -329,6 +343,7 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate, ARCoachingOver
         }
         isOpen = true
         isPeerAnchorTracked = false
+        updateCoachingOverlay()
 
         if collaborative {
             sessionIDObservation = session.observe(\.identifier, options: [.new]) { session, change in
@@ -399,7 +414,9 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate, ARCoachingOver
         DispatchQueue.main.async {
             self.collaborationMessage = "Peer joined: \(peer.displayName)\nHold phones next to each other."
         }
-        
+
+        updateCoachingOverlay()
+
         // Provide your session ID to the new user so they can keep track of your anchors
         sendARSessionIDTo(peers: [peer])
     }
@@ -410,7 +427,9 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate, ARCoachingOver
             self.collaborationMessage = "Peer left: \(peer.displayName)"
             self.isPeerAnchorTracked = false
         }
-        
+
+        updateCoachingOverlay()
+
         // Remove all ARAnchors associated with the peer that left
         if let sessionID = peerSessionIDs[peer] {
             removeAllAnchorsOriginatingFromARSessionWithID(sessionID)
@@ -426,6 +445,7 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate, ARCoachingOver
                     self.collaborationMessage = "Established joint experience with a peer."
                     self.coachingOverlay?.isHidden = true
                     self.isPeerAnchorTracked = true
+                    self.updateCoachingOverlay()
                 }
                 
                 // Only proceed if we have an AR view
@@ -477,6 +497,7 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate, ARCoachingOver
         session.pause()
         isOpen = false
         isPeerAnchorTracked = false
+        updateCoachingOverlay()
     }
     
     func killARSession() {
@@ -484,6 +505,7 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate, ARCoachingOver
         session = ARSession() // Replace with a new ARSession
         isOpen = false
         isPeerAnchorTracked = false
+        updateCoachingOverlay()
         print("ARSession killed and reset.")
     }
     
