@@ -15,6 +15,7 @@ import CoreMedia
 import CoreImage
 import UIKit
 import CoreImage.CIFilterBuiltins
+import MultipeerConnectivity
 //import WebRTC
 
 struct RecordingFiles {
@@ -37,13 +38,16 @@ func createFile(fileURL: URL) throws {
 
 struct ARViewContainer: UIViewRepresentable {
     var session: ARSession
+    @ObservedObject var viewModel: ARViewModel
     typealias UIViewType = ARView
     
     func makeUIView(context: Context) -> ARView {
         // Initialize the ARView
         let arView = ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
         arView.session = session
+        arView.session.delegate = viewModel
         arView.environment.sceneUnderstanding.options = [] // No extra scene understanding
+        viewModel.arView = arView
         return arView
     }
     func updateUIView(_ uiView: ARView, context: Context) {
@@ -63,7 +67,7 @@ class DepthStatus: ObservableObject {
     }
 }
 
-class ARViewModel: ObservableObject{
+class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
     var bluetoothManager: BluetoothManager?
     @Published var isOpen : Bool = false
     @Published var depthStatus = DepthStatus()
@@ -122,8 +126,16 @@ class ARViewModel: ObservableObject{
     private var depthAttributes: [String: Any] = [:]
     private var depthConfAttributes: [String: Any] = [:]
     private var audioOutputSettings: [String: Any] = [:]
+
+    var multipeerSession: MultipeerSession?
+    var peerSessionIDs = [MCPeerID: String]()
+    var sessionIDObservation: NSKeyValueObservation?
+    weak var arView: ARView?
+    @Published var collaborationMessage: String = ""
     
-    init() {
+    override init() {
+        self.ciContext = CIContext()
+        super.init()
         bluetoothManager = BluetoothManager()
         
         self.rgbAttributes = [
@@ -148,8 +160,14 @@ class ARViewModel: ObservableObject{
             AVEncoderBitRateKey: 128000
         ]
         
-        self.ciContext = CIContext()
         updateDemoCounter()
+        
+        // Initialize the MultipeerSession at the beginning
+        multipeerSession = MultipeerSession(receivedDataHandler: receivedData,
+                                           peerJoinedHandler: peerJoined,
+                                           peerLeftHandler: peerLeft,
+                                           peerDiscoveredHandler: peerDiscovered)
+        print("MultipeerSession initialized during ARViewModel creation")
     }
     
     
@@ -238,16 +256,13 @@ class ARViewModel: ObservableObject{
     }
     
     func setupARSession() {
-        self.startARSession()
-        
+        self.startARSession(collaborative: true)
         setupAudioSession()
-        
         setupTransforms()
-
         print("Finished setting up ARViewModel.")
     }
 
-    func startARSession() {
+    func startARSession(collaborative: Bool = false) {
         let status = AVCaptureDevice.authorizationStatus(for: .video)
             guard status == .authorized else {
                 print("Camera permissions not granted.")
@@ -278,12 +293,153 @@ class ARViewModel: ObservableObject{
         configuration.sceneReconstruction = []  // No scene reconstruction
         configuration.isAutoFocusEnabled = false
         
-        // Run the session with the configuration
-        session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
-        print("Starting session")
+        if collaborative {
+            configuration.isCollaborationEnabled = true
+        }
+        // session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+        session.run(configuration)
         isOpen = true
+
+        if collaborative {
+            sessionIDObservation = session.observe(\.identifier, options: [.new]) { session, change in
+                print("SessionID changed: \(String(describing: change.newValue))")
+                guard let multipeerSession = self.multipeerSession else { return }
+                self.sendARSessionIDTo(peers: multipeerSession.connectedPeers)
+            }
+        }
+    }
+
+    private func sendARSessionIDTo(peers: [MCPeerID]) {
+        guard let multipeerSession = multipeerSession else { return }
+        let idString = session.identifier.uuidString
+        let command = "SessionID:" + idString
+        if let commandData = command.data(using: .utf8) {
+            multipeerSession.sendToPeers(commandData, reliably: true, peers: peers)
+        }
+    }
+
+    private func removeAllAnchorsOriginatingFromARSessionWithID(_ identifier: String) {
+        guard let arView = self.arView, let frame = arView.session.currentFrame else { 
+            print("Cannot remove anchors: ARView or current frame is nil")
+            return 
+        }
+        for anchor in frame.anchors {
+            guard let anchorSessionID = anchor.sessionIdentifier else { continue }
+            if anchorSessionID.uuidString == identifier {
+                arView.session.remove(anchor: anchor)
+            }
+        }
+    }
+
+    func receivedData(_ data: Data, from peer: MCPeerID) {
+        if let collaborationData = try? NSKeyedUnarchiver.unarchivedObject(ofClass: ARSession.CollaborationData.self, from: data) {
+            guard let arView = self.arView else {
+                print("Cannot update collaboration data: ARView is nil")
+                return
+            }
+            arView.session.update(with: collaborationData)
+            return
+        }
+        
+        let sessionIDCommandString = "SessionID:"
+        if let commandString = String(data: data, encoding: .utf8), commandString.starts(with: sessionIDCommandString) {
+            let newSessionID = String(commandString[commandString.index(commandString.startIndex,
+                                                                     offsetBy: sessionIDCommandString.count)...])
+            // If this peer was using a different session ID before, remove all its associated anchors.
+            // This will remove the old participant anchor and its geometry from the scene.
+            if let oldSessionID = peerSessionIDs[peer] {
+                removeAllAnchorsOriginatingFromARSessionWithID(oldSessionID)
+            }
+            
+            peerSessionIDs[peer] = newSessionID
+            print("Updated session ID for peer \(peer.displayName): \(newSessionID)")
+            DispatchQueue.main.async {
+                self.collaborationMessage = "Connected with \(peer.displayName)"
+            }
+        }
     }
     
+    func peerDiscovered(_ peer: MCPeerID) -> Bool {
+        print("Peer discovered: \(peer.displayName)")
+        return true
+    }
+
+    func peerJoined(_ peer: MCPeerID) {
+        print("Peer joined: \(peer.displayName)")
+        DispatchQueue.main.async {
+            self.collaborationMessage = "Peer joined: \(peer.displayName)\nHold phones next to each other."
+        }
+        
+        // Provide your session ID to the new user so they can keep track of your anchors
+        sendARSessionIDTo(peers: [peer])
+    }
+        
+    func peerLeft(_ peer: MCPeerID) {
+        print("Peer left: \(peer.displayName)")
+        DispatchQueue.main.async {
+            self.collaborationMessage = "Peer left: \(peer.displayName)"
+        }
+        
+        // Remove all ARAnchors associated with the peer that left
+        if let sessionID = peerSessionIDs[peer] {
+            removeAllAnchorsOriginatingFromARSessionWithID(sessionID)
+            peerSessionIDs.removeValue(forKey: peer)
+        }
+    }
+
+    func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
+        for anchor in anchors {
+            if let participantAnchor = anchor as? ARParticipantAnchor {
+                print("Established joint experience with a peer.")
+                DispatchQueue.main.async {
+                    self.collaborationMessage = "Established joint experience with a peer."
+                }
+                
+                // Only proceed if we have an AR view
+                guard let arView = self.arView else {
+                    print("ARView is nil, cannot add participant visualization")
+                    continue
+                }
+                
+                // Create an anchor entity attached to the participant anchor
+                let anchorEntity = AnchorEntity(anchor: participantAnchor)
+                
+                // Add coordinate system visualization
+                let coordinateSystem = MeshResource.generateCoordinateSystemAxes()
+                anchorEntity.addChild(coordinateSystem)
+                
+                // Add colored sphere to represent the peer
+                let color = participantAnchor.sessionIdentifier?.toRandomColor() ?? .white
+                let coloredSphere = ModelEntity(
+                    mesh: MeshResource.generateSphere(radius: 0.03),
+                    materials: [SimpleMaterial(color: color, isMetallic: true)]
+                )
+                anchorEntity.addChild(coloredSphere)
+                
+                // Add to the scene
+                arView.scene.addAnchor(anchorEntity)
+                print("Added participant anchor visualization to scene")
+            }
+        }
+    }
+    
+    func session(_ session: ARSession, didOutputCollaborationData data: ARSession.CollaborationData) {
+        guard let multipeerSession = multipeerSession else { return }
+        
+        if !multipeerSession.connectedPeers.isEmpty {
+            if data.priority == .critical {
+                print("ARViewModel: Sending critical collaboration data to \(multipeerSession.connectedPeers.count) peers")
+            }
+            
+            guard let encodedData = try? NSKeyedArchiver.archivedData(withRootObject: data, requiringSecureCoding: true)
+            else { fatalError("Unexpectedly failed to encode collaboration data.") }
+            
+            // Use reliable mode if the data is critical, and unreliable mode if the data is optional.
+            let dataIsCritical = data.priority == .critical
+            multipeerSession.sendToAllPeers(encodedData, reliably: dataIsCritical)
+        }
+    }
+
     func pauseARSession(){
         session.pause()
         isOpen = false
@@ -750,6 +906,7 @@ class ARViewModel: ObservableObject{
         let ciImage = CIImage(cvPixelBuffer: depthPixelBuffer)
         let processedDepthImage = self.applyDepthFilters(ciImage: ciImage)
         
+        // TODO: segfault here EXC_BAD_ACCESS(code=1, addr=...)
         self.ciContext.render(
             processedDepthImage,
             to: depthOutputBuffer,

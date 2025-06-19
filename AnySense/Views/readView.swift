@@ -55,18 +55,21 @@ struct ReadView : View{
             Color.customizedBackground
                 .ignoresSafeArea()
             ZStack{
-                ARViewContainer(session: arViewModel.session)
+                ARViewContainer(session: arViewModel.session, viewModel: arViewModel)
                     .edgesIgnoringSafeArea(.all)
                     .frame(width: arViewWidth, height: arViewHeight)
                 // .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
                     .padding(.bottom, arViewPadding)
                     .opacity(appStatus.rgbdVideoStreaming == .off ? 1 : 0)
                     .allowsHitTesting(appStatus.rgbdVideoStreaming == .off) // Disable interaction in streaming mode
-                if appStatus.bimanualMode && appStatus.rightHand && recordingState == .registration {
-                    Image("ArUcoMarker")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: arViewWidth * 1.0, height: arViewWidth * 1.0)
+                if appStatus.bimanualMode && recordingState == .registration {
+                    Text(arViewModel.collaborationMessage.isEmpty ? "Waiting for peer..." : arViewModel.collaborationMessage)
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .padding()
+                        .background(Color.black.opacity(0.6))
+                        .cornerRadius(8)
+                        .padding(.top, 20)
                 }
                 if appStatus.rgbdVideoStreaming == .off {
                     Text(appStatus.ifBluetoothConnected ? "bluetooth device connected" : "bluetooth device disconnected")
@@ -316,6 +319,8 @@ struct ReadView : View{
         case .idle:
             if appStatus.bimanualMode {
                 recordingState = .registration
+                // Start AR session with collaboration enabled for bimanual mode
+                // arViewModel.startARSession(collaborative: true)
             } else {
                 recordingState = .recording
             }
