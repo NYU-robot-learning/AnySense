@@ -48,6 +48,7 @@ struct ARViewContainer: UIViewRepresentable {
         arView.session.delegate = viewModel
         arView.environment.sceneUnderstanding.options = [] // No extra scene understanding
         viewModel.arView = arView
+        viewModel.setupCoachingOverlay(for: arView)
         return arView
     }
     func updateUIView(_ uiView: ARView, context: Context) {
@@ -67,7 +68,7 @@ class DepthStatus: ObservableObject {
     }
 }
 
-class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
+class ARViewModel: NSObject, ObservableObject, ARSessionDelegate, ARCoachingOverlayViewDelegate {
     var bluetoothManager: BluetoothManager?
     @Published var isOpen : Bool = false
     @Published var depthStatus = DepthStatus()
@@ -133,6 +134,10 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
     weak var arView: ARView?
     @Published var collaborationMessage: String = ""
     @Published var isPeerAnchorTracked: Bool = false
+    var coachingOverlay: ARCoachingOverlayView?
+    private var isBimanualModeEnabled: Bool {
+        UserDefaults.standard.bool(forKey: "bimanualMode")
+    }
     
     override init() {
         self.ciContext = CIContext()
@@ -174,6 +179,26 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
     
     func getBLEManagerInstance() -> BluetoothManager{
         return bluetoothManager!;
+    }
+
+    func setupCoachingOverlay(for arView: ARView) {
+        let overlay = ARCoachingOverlayView()
+        overlay.session = session
+        overlay.delegate = self
+        overlay.goal = .tracking
+        overlay.activatesAutomatically = false
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        arView.addSubview(overlay)
+        NSLayoutConstraint.activate([
+            overlay.centerXAnchor.constraint(equalTo: arView.centerXAnchor),
+            overlay.centerYAnchor.constraint(equalTo: arView.centerYAnchor),
+            overlay.widthAnchor.constraint(equalTo: arView.widthAnchor),
+            overlay.heightAnchor.constraint(equalTo: arView.heightAnchor)
+        ])
+        self.coachingOverlay = overlay
+        if isBimanualModeEnabled && !isPeerAnchorTracked {
+            overlay.setActive(true, animated: true)
+        }
     }
 
     
@@ -399,6 +424,7 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
                 print("Established joint experience with a peer.")
                 DispatchQueue.main.async {
                     self.collaborationMessage = "Established joint experience with a peer."
+                    self.coachingOverlay?.isHidden = true
                     self.isPeerAnchorTracked = true
                 }
                 
@@ -1065,6 +1091,20 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
         } catch {
             print("Error reading directory contents: \(error)")
         }
+    }
+
+    // MARK: - ARCoachingOverlayViewDelegate
+    func coachingOverlayViewWillActivate(_ coachingOverlayView: ARCoachingOverlayView) {
+        DispatchQueue.main.async {
+            self.collaborationMessage = ""
+        }
+    }
+
+    func coachingOverlayViewDidDeactivate(_ coachingOverlayView: ARCoachingOverlayView) {
+    }
+
+    func coachingOverlayViewDidRequestSessionReset(_ coachingOverlayView: ARCoachingOverlayView) {
+        startARSession(collaborative: true, reset: true)
     }
     
 }

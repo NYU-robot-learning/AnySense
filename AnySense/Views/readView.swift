@@ -168,8 +168,6 @@ struct ReadView : View{
                     }
                 }
                 
-                
-                
                 if appStatus.rgbdVideoStreaming == .off{
                     HStack{
                         VStack{
