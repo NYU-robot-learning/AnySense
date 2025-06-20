@@ -25,6 +25,8 @@ struct RecordingFiles {
     let rgbImagesDirectory: URL
     let depthImagesDirectory: URL
     let poseFile: URL
+    let remotePoseFile: URL
+    let metadataFile: URL
     let generalDataDirectory: String
     let tactileFile: URL
 }
@@ -103,12 +105,14 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate, ARCoachingOver
     private var depthConfidenceOutputPixelBufferUSB: CVPixelBuffer?
     
     private var poseFileHandle: FileHandle?
+    private var remotePoseFileHandle: FileHandle?
     
     // Control the destination of rgb images directory and depth images directory
     private var rgbDirect: URL = URL(fileURLWithPath: "")
     private var depthDirect: URL = URL(fileURLWithPath: "")
     // Control the destination of pose data text file
     private var poseURL: URL = URL(fileURLWithPath: "")
+    private var remotePoseURL: URL = URL(fileURLWithPath: "")
     private var generalURL: URL = URL(fileURLWithPath: "")
     private var globalPoseFileName: String = ""
     
@@ -769,6 +773,7 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate, ARCoachingOver
 
         do {
             try poseFileHandle?.close()
+            try remotePoseFileHandle?.close()
         } catch {
             print("Error closing pose file")
         }
@@ -786,6 +791,7 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate, ARCoachingOver
             "RGB": "RGB_\(timestamp).mp4",
             "Depth": "Depth_\(timestamp).mp4",
             "Pose": "AR_Pose_\(timestamp).txt",
+            "RemotePose": "AR_RemotePose_\(timestamp).txt",
             "Tactile": "Tactile_\(timestamp).bin",
             "RGBImages": "RGB_Images_\(timestamp)",
             "DepthImages": isColorMapOpened ? "Depth_Colored_Images_\(timestamp)" : "Depth_Images_\(timestamp)"
@@ -800,7 +806,9 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate, ARCoachingOver
         let rgbVideoURL = generalDataDirectory.appendingPathComponent(fileNames["RGB"]!)
         let depthVideoURL = generalDataDirectory.appendingPathComponent(fileNames["Depth"]!)
         let poseTextURL = generalDataDirectory.appendingPathComponent(fileNames["Pose"]!)
+        let remotePoseTextURL = generalDataDirectory.appendingPathComponent(fileNames["RemotePose"]!)
         let tactileFileURL = generalDataDirectory.appendingPathComponent(fileNames["Tactile"]!)
+        let metadataURL = generalDataDirectory.appendingPathComponent("metadata.json")
         let rgbImagesDirectory = generalDataDirectory.appendingPathComponent(fileNames["RGBImages"]!)
         let depthImagesDirectory = generalDataDirectory.appendingPathComponent(fileNames["DepthImages"]!)
         
@@ -810,6 +818,8 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate, ARCoachingOver
                 try FileManager.default.createDirectory(at: depthImagesDirectory, withIntermediateDirectories: true)
             }
             try createFile(fileURL: poseTextURL)
+            try createFile(fileURL: remotePoseTextURL)
+            try createFile(fileURL: metadataURL)
         } catch {
             print("Error creating directories")
         }
@@ -817,7 +827,15 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate, ARCoachingOver
         self.rgbDirect = rgbImagesDirectory
         self.depthDirect = depthImagesDirectory
         self.poseURL = poseTextURL
+        self.remotePoseURL = remotePoseTextURL
         self.generalURL = generalDataDirectory
+
+        // Write basic metadata about the recording
+        let isRightHand = UserDefaults.standard.bool(forKey: "rightHand")
+        let meta: [String: String] = ["hand": isRightHand ? "right" : "left"]
+        if let jsonData = try? JSONSerialization.data(withJSONObject: meta, options: .prettyPrinted) {
+            try? jsonData.write(to: metadataURL)
+        }
         
         do {
             // Determine which video file url the assetWriter will write into
@@ -865,6 +883,8 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate, ARCoachingOver
             
             self.poseFileHandle = try FileHandle(forWritingTo: poseTextURL)
             try poseFileHandle?.seekToEnd()
+            self.remotePoseFileHandle = try FileHandle(forWritingTo: remotePoseTextURL)
+            try remotePoseFileHandle?.seekToEnd()
         } catch {
             print("Failed to setup recording: \(error)")
         }
@@ -876,6 +896,8 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate, ARCoachingOver
             rgbImagesDirectory: rgbImagesDirectory,
             depthImagesDirectory: depthImagesDirectory,
             poseFile: poseTextURL,
+            remotePoseFile: remotePoseTextURL,
+            metadataFile: metadataURL,
             generalDataDirectory: timestamp,
             tactileFile: tactileFileURL
         )
@@ -991,18 +1013,33 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate, ARCoachingOver
         let cameraTransform = frame.camera.transform
         // Transform the orientation matrix to unit quaternion
         let quaternion = simd_quaternion(cameraTransform)
-        
+
         let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
-        
+
         let poseValues: [Float] = [
             quaternion.vector.x, quaternion.vector.y, quaternion.vector.z, quaternion.vector.w,
             cameraTransform.columns.3.x, cameraTransform.columns.3.y, cameraTransform.columns.3.z
         ]
         let poseString = "\"<\(timestamp)>\" ," + poseValues.map { String($0) }.joined(separator: ",") + "\n"
-        
+
+        var remoteValues: [Float]
+        if let peerAnchor = frame.anchors.compactMap({ $0 as? ARParticipantAnchor }).first(where: { $0.sessionIdentifier != self.session.identifier }) {
+            let peerQuat = simd_quaternion(peerAnchor.transform)
+            remoteValues = [
+                peerQuat.vector.x, peerQuat.vector.y, peerQuat.vector.z, peerQuat.vector.w,
+                peerAnchor.transform.columns.3.x, peerAnchor.transform.columns.3.y, peerAnchor.transform.columns.3.z
+            ]
+        } else {
+            remoteValues = Array(repeating: .nan, count: 7)
+        }
+        let remotePoseString = "\"<\(timestamp)>\" ," + remoteValues.map { String($0) }.joined(separator: ",") + "\n"
+
         do {
             if let data = poseString.data(using: .utf8) {
                 try self.poseFileHandle?.write(contentsOf: data)
+            }
+            if let remoteData = remotePoseString.data(using: .utf8) {
+                try self.remotePoseFileHandle?.write(contentsOf: remoteData)
             }
         } catch {
             print("❌ Error writing pose data: \(error)")

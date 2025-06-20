@@ -18,7 +18,7 @@ enum ActiveAlert {
     case first, second
 }
 
-enum RecordingPhase {
+enum RecordingState {
     case idle
     case recording
 }
@@ -34,7 +34,7 @@ struct ReadView : View{
     @State var openFlash = true
     @State private var activeAlert: ActiveAlert = .first
     @State private var isRecordedOnce: Bool = false
-    @State private var recordingState: RecordingPhase = .idle
+    @State private var recordingState: RecordingState = .idle
     
     var body : some View{
         let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
@@ -392,10 +392,12 @@ struct ReadView : View{
         let rgbFile = FileElement.videoFile(VideoFile(url:fileSetNames.rgbFileName))
         let depthFile = FileElement.videoFile(VideoFile(url:fileSetNames.depthFileName))
         let poseFile = FileElement.textFile(TextFile(url:fileSetNames.poseFile.path))
+        let remotePoseFile = FileElement.textFile(TextFile(url:fileSetNames.remotePoseFile.path))
+        let metadataFile = FileElement.textFile(TextFile(url:fileSetNames.metadataFile.path))
 //        let rgbImageFolder = FileElement.directory(SubLevelDirectory(url:fileSetNames.rgbImagesDirectory))
         let depthImageFolder = FileElement.directory(SubLevelDirectory(url: fileSetNames.depthImagesDirectory))
-        
-        return [rgbFile, depthFile, poseFile, depthImageFolder]
+
+        return [rgbFile, depthFile, poseFile, remotePoseFile, metadataFile, depthImageFolder]
     }
     
     func deleteRecordedData(url: [URL], targetDirect: String){
