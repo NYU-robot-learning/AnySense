@@ -321,6 +321,83 @@ struct SettingsView : View{
                         }
                     }
                 }
+                
+                // MARK: - Movement Tracking Section
+                Section(header: Text("MOVEMENT TRACKING")) {
+                    HStack {
+                        Text("Show Movement Arrows")
+                            .font(.body)
+                            .foregroundColor(.primary)
+                        Spacer()
+                        Toggle("", isOn: $arViewModel.arVisualizationManager.showMovementArrows)
+                            .onChange(of: arViewModel.arVisualizationManager.showMovementArrows) { oldValue, newValue in
+                                arViewModel.arVisualizationManager.toggleMovementArrows()
+                            }
+                    }
+                    .padding(.vertical, 5)
+                    
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Max Movement Arrows")
+                            .font(.body)
+                            .foregroundColor(.primary)
+                        
+                        let maxArrowsBinding = Binding<Double>(
+                            get: { Double(arViewModel.arVisualizationManager.maxArrows) },
+                            set: { newValue in
+                                arViewModel.arVisualizationManager.setMaxArrows(Int(newValue))
+                            }
+                        )
+                        
+                        HStack {
+                            Text("1")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                            
+                            Slider(value: maxArrowsBinding, in: 1...20, step: 1)
+                            
+                            Text("20")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+                        
+                        Text("Current: \(arViewModel.arVisualizationManager.maxArrows) arrows")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    .padding(.vertical, 5)
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Movement Tracking Status")
+                            .font(.body)
+                            .foregroundColor(.primary)
+                        
+                        HStack {
+                            Text("Status:")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                            Spacer()
+                            Text(arViewModel.arVisualizationManager.isVisualizationEnabled ? "Active" : "Inactive")
+                                .font(.caption)
+                                .foregroundColor(arViewModel.arVisualizationManager.isVisualizationEnabled ? .green : .orange)
+                        }
+                        
+                        HStack {
+                            Text("Frequency:")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                            Spacer()
+                            Text(arViewModel.arVisualizationManager.visualizationFrequency.displayName)
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+                        
+                        Text("Shows arrows between consecutive ML inference positions")
+                            .font(.caption2)
+                            .foregroundColor(.gray)
+                            .padding(.top, 4)
+                    }
+                    .padding(.vertical, 5)
+                }
             }
             .scrollContentBackground(.hidden)
         }

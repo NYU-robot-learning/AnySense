@@ -15,6 +15,7 @@ import CoreMedia
 import CoreImage
 import UIKit
 import CoreImage.CIFilterBuiltins
+import Combine
 //import WebRTC
 
 struct RecordingFiles {
@@ -133,6 +134,9 @@ class ARViewModel: ObservableObject{
     private var depthAttributes: [String: Any] = [:]
     private var depthConfAttributes: [String: Any] = [:]
     private var audioOutputSettings: [String: Any] = [:]
+    
+    // Combine subscriptions for ML integration
+    private var cancellables = Set<AnyCancellable>()
     
     init() {
         bluetoothManager = BluetoothManager()
@@ -500,16 +504,31 @@ class ARViewModel: ObservableObject{
                 record3dHeader.depthSize = UInt32(compressedDepthData?.count ?? 0)
                 record3dHeader.confidenceMapSize = UInt32(compressedDepthConfData?.count ?? 0)
             }
+
+            // Always send exactly 7 floats (28 bytes) for joint actions
+            let jointActionsArray: [Float]
+            if let latestJointActions = self.mlManager?.latestResult?.jointPositions, !latestJointActions.isEmpty {
+                // Use actual ML inference results, ensure exactly 7 values
+                jointActionsArray = Array(latestJointActions.prefix(7)) + Array(repeating: 0.0, count: max(0, 7 - latestJointActions.count))
+                print("Streaming ML joint actions: [\(jointActionsArray.map { String(format: "%.3f", $0) }.joined(separator: ", "))]")
+            } else {
+                // Fallback to zeros if no ML results available
+                jointActionsArray = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+                print("No ML results available, streaming zero joint actions")
+            }
+            
+            // Convert to exactly 28 bytes (7 floats * 4 bytes each)
+            let jointActionsData = Data(bytes: jointActionsArray, count: 28)
+
             self.usbManager.sendData(
                 record3dHeaderData: Data(bytes: &record3dHeader, count: MemoryLayout<Record3DHeader>.size),
                 intrinsicMatData: Data(bytes: &intrinsicCoeffs, count: MemoryLayout<IntrinsicMatrixCoeffs>.size),
                 poseData: Data(bytes: &camera_pose, count: MemoryLayout<CameraPose>.size),
                 rgbImageData: rgbImageData!,
+                jointActionsData: jointActionsData,
                 compressedDepthData: compressedDepthData,
                 compressedConfData: compressedDepthConfData
             )
-            
-            
         }
         
     }
@@ -935,12 +954,15 @@ class ARViewModel: ObservableObject{
         // Connect AR visualization to ML inference
         self.mlManager?.arVisualizationManager = self.arVisualizationManager
         
+        // ML results are now accessed directly during streaming for better real-time performance
+        
         print("Initialized ML Inference Manager with Model Manager")
         print("Connected AR Visualization Manager to ML Inference")
+        print("Connected ML Results to USB Streaming")
         print("🔗 ML-AR Connection: \(self.mlManager?.arVisualizationManager != nil ? "✅ Connected" : "❌ Failed")")
     }
     
-}
+     }
 
 class AudioCaptureDelegate: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private let writerInput: AVAssetWriterInput?

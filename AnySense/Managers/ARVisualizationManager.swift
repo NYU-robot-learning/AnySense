@@ -4,11 +4,12 @@ import ARKit
 import simd
 import UIKit
 
-// MARK: - Pose Data Structure
-struct PoseData {
-    let translation: SIMD3<Float>  // x, y, z in meters
-    let rotation: SIMD3<Float>     // roll, pitch, yaw in radians
+// MARK: - Directional Arrow Data
+struct DirectionalArrow {
+    let entity: Entity
+    let anchor: AnchorEntity
     let timestamp: TimeInterval
+    let magnitude: Float
 }
 
 // MARK: - Visualization Frequency (Matching MLInferenceManager)
@@ -39,40 +40,42 @@ class ARVisualizationManager: ObservableObject {
     
     // MARK: - Published Properties
     @Published var isVisualizationEnabled: Bool = false
-    @Published var showCoordinateAxes: Bool = true
-    @Published var showTrail: Bool = true
-    @Published var trailLength: Int = 10
+    @Published var showMovementArrows: Bool = true
+    @Published var maxArrows: Int = 10
     @Published var visualizationFrequency: VisualizationFrequency = .medium
     
     // MARK: - Private Properties  
     private var arView: ARView?
-    private var poseAnchor: AnchorEntity?
-    private var coordinateAxesEntity: Entity?
-    private var trailEntity: Entity?
-    private var trailPoints: [SIMD3<Float>] = []
+    private var worldOriginAnchor: AnchorEntity?
+    private var movementArrows: [DirectionalArrow] = []
     private var lastVisualizationTime: CFTimeInterval = 0
     
-    // Visual configuration (scaled down for less dominance in AR view)
-    private let axisLength: Float = 0.1     
-    private let axisThickness: Float = 0.003
-    private let trailPointSize: Float = 0.015 
-    
-    private var accumulatedTransform: float4x4 = matrix_identity_float4x4
-    
-    // World reference frame set at the start of the recording
-    private var fixedWorldOrigin: float4x4 = matrix_identity_float4x4
+    // Movement tracking
+    private var worldOrigin: SIMD3<Float> = SIMD3<Float>(0, 0, 0)
+    private var currentWorldPosition: SIMD3<Float> = SIMD3<Float>(0, 0, 0)
+    private var previousWorldPosition: SIMD3<Float>?
     private var hasEstablishedOrigin: Bool = false
+    
+    // Arrow visual configuration
+    private let arrowBaseLength: Float = 0.15      // Base length in meters
+    private let arrowThickness: Float = 0.008      // Arrow shaft thickness
+    private let arrowHeadRatio: Float = 0.25       // Head vs shaft ratio
+    private let arrowHeadWidth: Float = 0.025      // Arrow head width
+    private let axisLength: Float = 0.08           // Coordinate axes length
+    private let axisThickness: Float = 0.005       // Coordinate axes thickness
+    
+    // Arrow lifecycle
+    private let arrowLifetime: TimeInterval = 3.0  // Arrows fade after 3 seconds
     
     // MARK: - Initialization 
     init() {
-        print("ARVisualizationManager initialized")
+        print("ARVisualizationManager initialized with delta-based movement arrows")
     }
     
     // MARK: - Setup Methods
     func setupVisualization(with arView: ARView) {
         self.arView = arView
-        
-        print("AR Visualization setup completed - using incremental delta mode only")
+        print("AR Visualization setup completed - using camera-relative directional arrows")
     }
     
     // MARK: - Recording Control Methods
@@ -84,155 +87,61 @@ class ARVisualizationManager: ObservableObject {
             return 
         }
         
-        print("Setting origin at current camera position...")
-        // Set origin at current camera position when recording starts
-        setOriginAtCurrentCamera()
-        
-        print("Enabling visualization...")
+        print("Establishing world origin for movement tracking...")
+        establishWorldOrigin()
         enableVisualization()
         
-        print("Started recording visualization - enabled=\(isVisualizationEnabled), hasAxes=\(coordinateAxesEntity != nil)")
+        print("Started movement visualization - enabled=\(isVisualizationEnabled)")
     }
     
     func stopRecordingVisualization() {
         disableVisualization()
-        clearVisualization()
-        poseAnchor?.removeFromParent()
-        poseAnchor = nil
-        
-        // Reset stable origin for next recording session
-        fixedWorldOrigin = matrix_identity_float4x4
-        hasEstablishedOrigin = false
-        
-        print("Stopped recording visualization and cleared origin")
+        clearAllVisualization()
+        resetMovementTracking()
+        print("Stopped movement visualization and reset tracking")
     }
     
-    private func setOriginAtCurrentCamera() {
+    // MARK: - World Origin & Movement Tracking
+    private func getCurrentCameraTransform() -> float4x4 {
+        return arView?.session.currentFrame?.camera.transform ?? matrix_identity_float4x4
+    }
+    
+    private func getCurrentCameraPosition() -> SIMD3<Float> {
+        let transform = getCurrentCameraTransform()
+        return SIMD3<Float>(transform.columns.3.x, transform.columns.3.y, transform.columns.3.z)
+    }
+    
+    private func establishWorldOrigin() {
         guard let arView = arView else { return }
-        
-        // Establish STABLE world origin that NEVER changes
         guard !hasEstablishedOrigin else {
-            print("World origin already established - ignoring duplicate call")
+            print("World origin already established")
             return
         }
         
-        // Get current camera transform ONCE and store as fixed reference
-        fixedWorldOrigin = arView.session.currentFrame?.camera.transform ?? matrix_identity_float4x4
+        // Set world origin at current camera position
+        worldOrigin = getCurrentCameraPosition()
+        currentWorldPosition = SIMD3<Float>(0, 0, 0) // Start at origin
+        previousWorldPosition = nil
         hasEstablishedOrigin = true
         
-        let originPosition = SIMD3<Float>(fixedWorldOrigin.columns.3.x, fixedWorldOrigin.columns.3.y, fixedWorldOrigin.columns.3.z)
+        // Create anchor at world origin
+        worldOriginAnchor = AnchorEntity(world: worldOrigin)
+        arView.scene.addAnchor(worldOriginAnchor!)
         
-        // Place anchor at fixed world origin (not moving with camera)
-        poseAnchor = AnchorEntity(world: originPosition)
-        arView.scene.addAnchor(poseAnchor!)
-        
-        // Create coordinate axes and trail
-        if showCoordinateAxes {
-            createCoordinateAxes()
-        }
-        if showTrail {
-            createTrailEntity()
-        }
-        
-        print("FIXED world origin established at: (\(originPosition.x), \(originPosition.y), \(originPosition.z))")
+        print("🌍 World origin established at: \(worldOrigin)")
     }
     
-    private func createCoordinateAxes() {
-        guard let anchor = poseAnchor else { return }
-        coordinateAxesEntity = Entity()
+    private func resetMovementTracking() {
+        hasEstablishedOrigin = false
+        worldOrigin = SIMD3<Float>(0, 0, 0)
+        currentWorldPosition = SIMD3<Float>(0, 0, 0)
+        previousWorldPosition = nil
         
-        let xAxis = createAxisEntity(direction: [1,0,0], color: .red,   length: axisLength)
-        let yAxis = createAxisEntity(direction: [0,1,0], color: .green, length: axisLength)
-        let zAxis = createAxisEntity(direction: [0,0,1], color: .blue,  length: axisLength)
-        
-        [xAxis, yAxis, zAxis].forEach { coordinateAxesEntity?.addChild($0) }
-        anchor.addChild(coordinateAxesEntity!)
-        
-        accumulatedTransform = matrix_identity_float4x4
+        worldOriginAnchor?.removeFromParent()
+        worldOriginAnchor = nil
     }
     
-    private func createAxisEntity(direction: SIMD3<Float>,
-                              color: UIColor,
-                              length: Float) -> Entity {
-        let axisEntity = Entity()
-        
-        // Create the shaft
-        let shaftLength = length * 0.8
-        let shaftMesh = MeshResource.generateBox(
-            width: axisThickness,
-            height: axisThickness, 
-            depth: shaftLength
-        )
-        
-        let shaft = ModelEntity(
-            mesh: shaftMesh,
-            materials: [SimpleMaterial(color: color, isMetallic: false)]
-        )
-        
-        
-        let arrowHeadLength = length * 0.5  
-        let arrowHeadSize = axisThickness * 5
-        let arrowHeadMesh = MeshResource.generateBox(
-            width: arrowHeadSize,
-            height: arrowHeadSize,
-            depth: arrowHeadLength
-        )
-        
-        let arrowHead = ModelEntity(
-            mesh: arrowHeadMesh,
-            materials: [SimpleMaterial(color: color, isMetallic: false)]
-        )
-        
-        // Create 3D arrow
-        let dirNorm = normalize(direction)
-        let forward: SIMD3<Float> = [0, 0, 1] 
-        
-        let rotQuat = simd_quatf(from: forward, to: dirNorm)
-        shaft.orientation = rotQuat
-        arrowHead.orientation = rotQuat
-        
-        shaft.position = dirNorm * (shaftLength / 2)
-        arrowHead.position = dirNorm * (shaftLength + arrowHeadLength / 2)
-        
-        axisEntity.addChild(shaft)
-        axisEntity.addChild(arrowHead)
-        return axisEntity
-    }
-    
-    private func createTrailEntity() {
-        guard let anchor = poseAnchor else { return }
-        trailEntity = Entity()
-        anchor.addChild(trailEntity!)
-    }
-    
-    
-    private func updateTrail(with position: SIMD3<Float>) {
-        guard let trail = trailEntity else { return }
-        trailPoints.append(position)
-        if trailPoints.count > trailLength {
-            trailPoints.removeFirst()
-        }
-        
-        trail.children.removeAll()
-        for (i, pt) in trailPoints.enumerated() {
-            let alpha = Float(i) / Float(trailPoints.count)
-            let dot = createTrailPoint(at: pt, alpha: alpha)
-            trail.addChild(dot)
-        }
-    }
-    
-    private func createTrailPoint(at position: SIMD3<Float>, alpha: Float) -> Entity {
-        let dot = ModelEntity(
-            mesh: .generateSphere(radius: trailPointSize),
-            materials: [SimpleMaterial(
-                color: .orange,
-                isMetallic: false
-            )]
-        )
-        dot.position = position
-        return dot
-    }
-    
+
     
     // MARK: - Control Methods
     func enableVisualization() {
@@ -241,91 +150,259 @@ class ARVisualizationManager: ObservableObject {
     
     func disableVisualization() {
         isVisualizationEnabled = false
-        clearVisualization()
+        clearAllVisualization()
     }
     
-    private func clearVisualization() {
-        coordinateAxesEntity?.removeFromParent()
-        trailEntity?.removeFromParent()
-        trailPoints.removeAll()
+    private func clearAllVisualization() {
+        // Remove all movement arrows
+        for arrow in movementArrows {
+            arrow.anchor.removeFromParent()
+        }
+        movementArrows.removeAll()
     }
     
-    func toggleCoordinateAxes() {
-        showCoordinateAxes.toggle()
-        if showCoordinateAxes {
-            createCoordinateAxes()
-        } else {
-            coordinateAxesEntity?.removeFromParent()
-            coordinateAxesEntity = nil
+    func toggleMovementArrows() {
+        showMovementArrows.toggle()
+        if !showMovementArrows {
+            // Remove all movement arrows
+            for arrow in movementArrows {
+                arrow.anchor.removeFromParent()
+            }
+            movementArrows.removeAll()
         }
     }
     
-    func toggleTrail() {
-        showTrail.toggle()
-        if showTrail {
-            createTrailEntity()
-        } else {
-            trailEntity?.removeFromParent()
-            trailEntity = nil
-            trailPoints.removeAll()
+    func setMaxArrows(_ count: Int) {
+        maxArrows = max(1, min(20, count))
+        // Trim existing arrows if needed
+        while movementArrows.count > maxArrows {
+            let oldArrow = movementArrows.removeFirst()
+            oldArrow.anchor.removeFromParent()
         }
     }
     
-    func setTrailLength(_ length: Int) {
-        trailLength = max(10, min(200, length))
-        if trailPoints.count > trailLength {
-            trailPoints = Array(trailPoints.suffix(trailLength))
-        }
-    }
-    
-    // MARK: - Frequency Control Methods (Matching MLInferenceManager)
+    // MARK: - Frequency Control Methods
     func setVisualizationFrequency(_ frequency: VisualizationFrequency) {
         visualizationFrequency = frequency
         print("AR Visualization frequency set to: \(frequency.displayName)")
     }
     
     // MARK: - ML Integration Method
-    // TODO: Fix visualization - logic is not correct
     func updatePoseFromMLOutput(_ jointActions: [Float], timestamp: CFTimeInterval = CACurrentMediaTime()) {
-        // Apply frequency throttling (same as MLInferenceManager)
+        // Apply frequency throttling
         if timestamp - lastVisualizationTime < visualizationFrequency.interval {
             return
         }
         
         lastVisualizationTime = timestamp
         
-        print("AR Visualization update at \(visualizationFrequency.displayName) frequency")
-        print("ML Pose Input: \(jointActions.prefix(6).map { String(format: "%.3f", $0) })")
-        
+        guard isVisualizationEnabled, showMovementArrows else { return }
+        guard hasEstablishedOrigin else {
+            print("World origin not established - cannot track movement")
+            return
+        }
         guard jointActions.count >= 6 else {
             print("Invalid joint actions array - need at least 6 values, got \(jointActions.count)")
             return
         }
         
-        // Apply coordinate system transformation from PickUp Policy to ARKit
-        // Pickup Policy: x=down, y=right, z=backward → ARKit: x=right, y=up, z=forward
-        let ml_x = jointActions[0]  
-        let ml_y = jointActions[1]  
-        let ml_z = jointActions[2]  
+        // Interpret joint actions as movement deltas in ARKit coordinates
+        let (deltaTranslation, _, confidence) = interpretMLDirections(jointActions)
+        
+        print("📱 ML input (x=down,y=right,z=back): (\(String(format: "%.3f", jointActions[0])), \(String(format: "%.3f", jointActions[1])), \(String(format: "%.3f", jointActions[2])))")
+        print("📲 Delta movement (x=right,y=up,z=forward): (\(String(format: "%.3f", deltaTranslation.x)), \(String(format: "%.3f", deltaTranslation.y)), \(String(format: "%.3f", deltaTranslation.z)))")
+        print("🎯 Confidence: \(String(format: "%.2f", confidence))")
+        
+        // Update position tracking
+        let previousPosition = currentWorldPosition
+        currentWorldPosition = currentWorldPosition + deltaTranslation
+        
+        // Only create movement arrow if there's meaningful movement and we have a previous position
+        let movementMagnitude = length(deltaTranslation)
+        if movementMagnitude > 0.005 { // 5mm threshold for meaningful movement
+            createMovementArrow(
+                from: previousPosition,
+                to: currentWorldPosition,
+                confidence: confidence,
+                timestamp: timestamp
+            )
+        }
+        
+        print("🎯 Position updated: \(String(format: "(%.3f,%.3f,%.3f)", currentWorldPosition.x, currentWorldPosition.y, currentWorldPosition.z)) → moved \(String(format: "%.3f", movementMagnitude))m")
+    }
+    
+    private func interpretMLDirections(_ jointActions: [Float]) -> (translation: SIMD3<Float>, rotation: simd_quatf, confidence: Float) {
+        
+        // Interpret as directional vectors (not absolute positions)
+        // Transform from ML coordinate system to ARKit camera-relative coordinates
+        let ml_x = jointActions[0]  // down
+        let ml_y = jointActions[1]  // right  
+        let ml_z = jointActions[2]  // backward (into phone)
         let ml_roll = jointActions[3]
         let ml_pitch = jointActions[4]
         let ml_yaw = jointActions[5]
         
-        let arkit_x = ml_y          
-        let arkit_y = -ml_x         
-        let arkit_z = -ml_z         
+        // COORDINATE SYSTEM TRANSFORMATION:
+        // Phone ML: x=down, y=right, z=backward → ARKit: x=right, y=up, z=forward
+        // 
+        // ML x (down)     → ARKit y (up)      → negate: -ml_x
+        // ML y (right)    → ARKit x (right)   → direct: ml_y  
+        // ML z (backward) → ARKit z (forward) → negate: -ml_z
+        let translation = SIMD3<Float>(
+            ml_y,          // ML y (right) → ARKit x (right)
+            -ml_x,         // ML x (down) → ARKit y (up), so -x
+            ml_z          // ML z (backward) → ARKit z (forward), so -z
+        )
         
-        let arkit_roll = ml_pitch  
-        let arkit_pitch = -ml_roll  
-        let arkit_yaw = -ml_yaw     
+        // Transform rotation
+        let rotation = eulerToQuaternion(
+            roll: ml_pitch,    // Transform coordinate system
+            pitch: -ml_roll,
+            yaw: ml_yaw
+        )
         
-        print("ML→ARKit transform: t=(\(String(format: "%.3f", arkit_x)), \(String(format: "%.3f", arkit_y)), \(String(format: "%.3f", arkit_z))), r=(\(String(format: "%.3f", arkit_roll)), \(String(format: "%.3f", arkit_pitch)), \(String(format: "%.3f", arkit_yaw)))")
+        // Calculate confidence based on magnitude
+        let translationMagnitude = length(translation)
+        let rotationMagnitude = sqrt(ml_roll * ml_roll + ml_pitch * ml_pitch + ml_yaw * ml_yaw)
+        let confidence = min(1.0, (translationMagnitude * 10 + rotationMagnitude) / 2.0) // Scale for reasonable confidence
         
-        let quaternion = eulerToQuaternion(roll: arkit_roll, pitch: arkit_pitch, yaw: arkit_yaw)
+        return (translation, rotation, confidence)
+    }
+    
+    private func createMovementArrow(from: SIMD3<Float>, to: SIMD3<Float>, confidence: Float, timestamp: TimeInterval) {
+        guard let arView = arView, let worldOriginAnchor = worldOriginAnchor else { return }
         
-        applyIncrementalPose(deltaTranslation: SIMD3(arkit_x, arkit_y, arkit_z), deltaQuaternion: quaternion)
+        DispatchQueue.main.async { [weak self, arView, worldOriginAnchor] in
+            guard let self = self else { return }
+            
+            // Calculate movement vector
+            let movement = to - from
+            let movementMagnitude = length(movement)
+            
+            // Skip tiny movements
+            guard movementMagnitude > 0.001 else { return }
+            
+            // Convert positions to world coordinates (relative to world origin)
+            let worldFromPosition = self.worldOrigin + from
+            let worldToPosition = self.worldOrigin + to
+            
+            // Create arrow entity showing movement from previous to current position
+            let arrowEntity = self.createMovementArrowEntity(
+                fromPosition: from,
+                toPosition: to,
+                movement: movement,
+                confidence: confidence
+            )
+            
+            // Position arrow at the start position (in world origin's coordinate system)
+            arrowEntity.position = from
+            worldOriginAnchor.addChild(arrowEntity)
+            
+            // Store arrow with metadata
+            let movementArrow = DirectionalArrow(
+                entity: arrowEntity,
+                anchor: worldOriginAnchor,
+                timestamp: timestamp,
+                magnitude: movementMagnitude
+            )
+            
+            self.movementArrows.append(movementArrow)
+            
+            // Clean up old arrows
+            self.cleanupOldArrows(currentTime: timestamp)
+            
+            // Limit number of arrows
+            while self.movementArrows.count > self.maxArrows {
+                let oldArrow = self.movementArrows.removeFirst()
+                oldArrow.entity.removeFromParent()
+            }
+            
+            print("🏹 Movement arrow: from=\(String(format: "(%.3f,%.3f,%.3f)", from.x, from.y, from.z)) to=\(String(format: "(%.3f,%.3f,%.3f)", to.x, to.y, to.z)) move=\(String(format: "%.3f", movementMagnitude))m")
+        }
+    }
+    
+    private func createMovementArrowEntity(fromPosition: SIMD3<Float>, toPosition: SIMD3<Float>, movement: SIMD3<Float>, confidence: Float) -> Entity {
+        let arrowContainer = Entity()
         
-        print("ML Pose processed and sent to visualization")
+        // Calculate arrow dimensions based on movement magnitude
+        let movementMagnitude = length(movement)
+        let scaledLength = max(movementMagnitude, 0.02) // Minimum 2cm for visibility
+        let shaftLength = scaledLength * (1.0 - arrowHeadRatio)
+        let headLength = scaledLength * arrowHeadRatio
+        
+        // Create arrow shaft (cylinder) 
+        let shaftMesh = MeshResource.generateBox(
+            width: arrowThickness,
+            height: arrowThickness,
+            depth: shaftLength
+        )
+        
+        // Color based on confidence: red (low) -> yellow (medium) -> green (high)
+        let shaftColor = confidenceToColor(confidence)
+        let shaftEntity = ModelEntity(
+            mesh: shaftMesh,
+            materials: [SimpleMaterial(color: shaftColor, isMetallic: false)]
+        )
+        
+        // Create arrow head (pointing toward destination)
+        let headMesh = MeshResource.generateBox(
+            width: arrowHeadWidth,
+            height: arrowHeadWidth,
+            depth: headLength
+        )
+        
+        let headEntity = ModelEntity(
+            mesh: headMesh,
+            materials: [SimpleMaterial(color: shaftColor.withAlphaComponent(0.9), isMetallic: false)]
+        )
+        
+        // Position shaft and head along the movement vector
+        shaftEntity.position = SIMD3<Float>(0, 0, shaftLength / 2)
+        headEntity.position = SIMD3<Float>(0, 0, shaftLength + headLength / 2)
+        
+        // Orient arrow in direction of movement
+        if movementMagnitude > 0.001 {
+            let normalizedMovement = normalize(movement)
+            let forward = SIMD3<Float>(0, 0, 1)
+            let rotationQuat = simd_quatf(from: forward, to: normalizedMovement)
+            
+            arrowContainer.orientation = rotationQuat
+        }
+        
+        arrowContainer.addChild(shaftEntity)
+        arrowContainer.addChild(headEntity)
+        
+        return arrowContainer
+    }
+    
+    private func confidenceToColor(_ confidence: Float) -> UIColor {
+        // Red (low confidence) -> Yellow (medium) -> Green (high confidence)
+        let clampedConfidence = max(0.0, min(1.0, confidence))
+        
+        if clampedConfidence < 0.5 {
+            // Red to Yellow
+            let factor = clampedConfidence * 2.0
+            return UIColor(red: 1.0, green: CGFloat(factor), blue: 0.0, alpha: 0.8)
+        } else {
+            // Yellow to Green
+            let factor = (clampedConfidence - 0.5) * 2.0
+            return UIColor(red: CGFloat(1.0 - factor), green: 1.0, blue: 0.0, alpha: 0.8)
+        }
+    }
+    
+    private func cleanupOldArrows(currentTime: TimeInterval) {
+        let expiredArrows = movementArrows.filter { currentTime - $0.timestamp > arrowLifetime }
+        
+        for expiredArrow in expiredArrows {
+            expiredArrow.entity.removeFromParent()
+            if let index = movementArrows.firstIndex(where: { $0.timestamp == expiredArrow.timestamp }) {
+                movementArrows.remove(at: index)
+            }
+        }
+        
+        if !expiredArrows.isEmpty {
+            print("Cleaned up \(expiredArrows.count) expired movement arrows")
+        }
     }
     
     private func eulerToQuaternion(roll: Float, pitch: Float, yaw: Float) -> simd_quatf {
@@ -347,56 +424,4 @@ class ARVisualizationManager: ObservableObject {
         
         return simd_quatf(ix: x, iy: y, iz: z, r: w)
     }
-    
-    // Accumulate deltas in the local end-effector frame with stable origin
-    private func applyIncrementalPose(deltaTranslation: SIMD3<Float>, deltaQuaternion: simd_quatf) {
-        print("Applying incremental pose delta: t=(\(String(format: "%.3f", deltaTranslation.x)), \(String(format: "%.3f", deltaTranslation.y)), \(String(format: "%.3f", deltaTranslation.z)))")
-        
-        guard isVisualizationEnabled else { 
-            print("Visualization not enabled")
-            return 
-        }
-        guard hasEstablishedOrigin else {
-            print("World origin not established - cannot apply incremental pose")
-            return
-        }
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            guard let axes = self.coordinateAxesEntity else { 
-                print("No coordinate axes entity available")
-                return 
-            }
-
-            // Build delta 4x4 matrix from quaternion + translation
-            var deltaMatrix = float4x4(deltaQuaternion)
-            deltaMatrix.columns.3 = SIMD4<Float>(deltaTranslation.x, deltaTranslation.y, deltaTranslation.z, 1)
-
-            // Accumulate delta: current_pose = current_pose * delta_pose
-            self.accumulatedTransform = self.accumulatedTransform * deltaMatrix
-
-            // Transform accumulated pose relative to fixed world origin
-            let originPosition = SIMD3<Float>(self.fixedWorldOrigin.columns.3.x, 
-                                            self.fixedWorldOrigin.columns.3.y, 
-                                            self.fixedWorldOrigin.columns.3.z)
-            let originQuat = simd_quatf(self.fixedWorldOrigin)
-            
-            // Compose with world origin
-            let worldTransform = self.fixedWorldOrigin * self.accumulatedTransform
-            
-            // Apply the final transform to coordinate axes
-            axes.transform = Transform(matrix: worldTransform)
-
-            // Update trail with world position
-            let worldPosition = SIMD3<Float>(worldTransform.columns.3.x,
-                                           worldTransform.columns.3.y,
-                                           worldTransform.columns.3.z)
-            if self.showTrail {
-                self.updateTrail(with: worldPosition)
-            }
-            
-            print("Incremental pose applied: accumulated=(\(String(format: "%.2f", self.accumulatedTransform.columns.3.x)), \(String(format: "%.2f", self.accumulatedTransform.columns.3.y)), \(String(format: "%.2f", self.accumulatedTransform.columns.3.z))), world=(\(String(format: "%.2f", worldPosition.x)), \(String(format: "%.2f", worldPosition.y)), \(String(format: "%.2f", worldPosition.z)))")
-        }
-    }
-    
 }

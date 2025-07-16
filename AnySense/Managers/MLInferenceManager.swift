@@ -30,7 +30,7 @@ class MLInferenceManager: ObservableObject {
     
     // MARK: - Private Properties
     private var model: MLModel?
-    private var lastInferenceTime: CFTimeInterval = 0
+    private var lastInferenceTime: CFTimeInterval = -Double.infinity  // Start with negative infinity to ensure first inference runs
     private var inferenceQueue = DispatchQueue(label: "MLInferenceQueue", qos: .userInitiated)
     
     // MARK: - Model Management
@@ -135,28 +135,38 @@ class MLInferenceManager: ObservableObject {
         guard isInferenceEnabled,
               let model = model else { return }
         
-        if timestamp - lastInferenceTime < inferenceFrequency.interval {
+        let timeSinceLastInference = timestamp - lastInferenceTime
+        let requiredInterval = inferenceFrequency.interval
+        
+        if timeSinceLastInference < requiredInterval {
             return
         }
         
         lastInferenceTime = timestamp
         
-        inferenceQueue.async { [weak self] in
-            guard let self = self else { return }
-            
-            let startTime = CACurrentMediaTime()
-            
-            autoreleasepool {
-                do {
-                    let inputArray = try self.processFrameForInference(pixelBuffer)
-                    let input = try MLDictionaryFeatureProvider(dictionary: ["x_1": inputArray])
-                    let output = try model.prediction(from: input)
+        // Process frame synchronously to avoid CVPixelBuffer sendable issues
+        let startTime = CACurrentMediaTime()
+        
+        autoreleasepool {
+            do {
+                let inputArray = try self.processFrameForInference(pixelBuffer)
+                
+                // Move to background queue after processing CVPixelBuffer
+                inferenceQueue.async { [weak self, inputArray, model, startTime] in
+                    guard let self = self else { return }
                     
-                    let inferenceTime = CACurrentMediaTime() - startTime
-                    self.processInferenceResults(output, inferenceTime: inferenceTime)
-                } catch {
-                    print("Failed to perform inference: \(error)")
+                    do {
+                        let input = try MLDictionaryFeatureProvider(dictionary: ["x_1": inputArray])
+                        let output = try model.prediction(from: input)
+                        
+                        let inferenceTime = CACurrentMediaTime() - startTime
+                        self.processInferenceResults(output, inferenceTime: inferenceTime)
+                    } catch {
+                        print("Failed to perform ML inference: \(error)")
+                    }
                 }
+            } catch {
+                print("Failed to process frame for inference: \(error)")
             }
         }
     }
@@ -282,12 +292,15 @@ class MLInferenceManager: ObservableObject {
         
         let positionString = jointPositions.map { String(format: "%.3f", $0) }.joined(separator: ", ")
         let modelName = modelManager.activeModel?.name ?? "Unknown"
-        print("Model Output [\(modelName)] (\(outputFeatureName)): [\(positionString)] - \(String(format: "%.1f", inferenceTime * 1000))ms")
+        print("ML Model Output [\(modelName)] (\(outputFeatureName)): [\(positionString)] - \(String(format: "%.1f", inferenceTime * 1000))ms")
+        print("Joint actions ready for USB streaming: \(jointPositions.count) values")
     }
     
     // MARK: - Control Methods
     func enableInference() {
         isInferenceEnabled = true
+        // Reset timing to ensure immediate inference when enabled
+        lastInferenceTime = -Double.infinity
         let modelName = modelManager.activeModel?.name ?? "No model"
         print("Pick Up Policy enabled with model: \(modelName)")
     }
@@ -299,8 +312,14 @@ class MLInferenceManager: ObservableObject {
     }
     
     func setInferenceFrequency(_ frequency: InferenceFrequency) {
+        let oldFrequency = inferenceFrequency
         inferenceFrequency = frequency
-        print("Pick Up Policy frequency set to: \(frequency.displayName)")
+        // Reset lastInferenceTime to allow immediate inference at new frequency
+        lastInferenceTime = -Double.infinity
+        print("🎚️ Frequency changed from \(oldFrequency.displayName) to \(frequency.displayName) - Interval: \(frequency.interval)s")
+        
+        // Automatically synchronize with AR visualization
+        synchronizeFrequencyWithVisualization()
     }
     
     // MARK: - Frequency Synchronization
@@ -319,6 +338,6 @@ class MLInferenceManager: ObservableObject {
         }
         
         arVisualizationManager?.setVisualizationFrequency(correspondingVisualizationFrequency)
-        print("Synchronized ML inference (\(inferenceFrequency.displayName)) with AR visualization (\(correspondingVisualizationFrequency.displayName))")
+        print("Synchronized ML inference (\(inferenceFrequency.displayName)) with AR arrow visualization (\(correspondingVisualizationFrequency.displayName))")
     }
 } 

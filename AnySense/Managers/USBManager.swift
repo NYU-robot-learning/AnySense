@@ -21,7 +21,7 @@ struct Record3DHeader {
     var rgbWidth: UInt32
     var rgbHeight: UInt32
     var depthWidth: UInt32
-    var depthHeight: UInt32
+    var depthHeight: UInt32 
     var confidenceWidth: UInt32
     var confidenceHeight: UInt32
     var rgbSize: UInt32
@@ -29,6 +29,7 @@ struct Record3DHeader {
     var confidenceMapSize: UInt32
     var miscSize: UInt32
     var deviceType: UInt32
+    // jointActions are always 28 bytes (7 floats), sent separately in message body
 }
 
 struct IntrinsicMatrixCoeffs {
@@ -108,6 +109,7 @@ class USBManager {
         intrinsicMatData: Data,
         poseData: Data,
         rgbImageData: Data,
+        jointActionsData: Data,  // Always exactly 28 bytes (7 floats)
         compressedDepthData: Data? = nil,
         compressedConfData: Data? = nil
     ) {
@@ -115,7 +117,7 @@ class USBManager {
             print("No active connection. Cannot send data.")
             return
         }
-        var messageBody = record3dHeaderData + intrinsicMatData + poseData + rgbImageData
+        var messageBody = record3dHeaderData + intrinsicMatData + poseData + rgbImageData + jointActionsData
         if let depthData = compressedDepthData {
             messageBody += depthData
         }
@@ -127,12 +129,23 @@ class USBManager {
         let ptHeaderData = Data(bytes: &self.ptHeader, count:MemoryLayout<PeerTalkHeader>.size)
         
         let completeMessage = ptHeaderData + messageBody
-        print("Sending data of size: \(completeMessage.count)")
+        
+        print("USB Streaming Summary:")
+        print("  - Total message size: \(completeMessage.count) bytes")
+        print("  - RGB size: \(rgbImageData.count) bytes")
+        print("  - Joint actions: 28 bytes (7 floats)")
+        if let depthData = compressedDepthData {
+            print("  - Depth size: \(depthData.count) bytes (compressed)")
+        }
+        if let confData = compressedConfData {
+            print("  - Confidence size: \(confData.count) bytes (compressed)")
+        }
+        
         activeConnection.send(content:completeMessage, completion: .contentProcessed {error in
             if let error = error {
-                print("Failed to send data: \(error)")
+                print("❌ Failed to send USB data: \(error)")
             } else {
-                print("Image data sent successfully")
+                print("✅ USB data sent successfully to computer")
             }
         })
     }

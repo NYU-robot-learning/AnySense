@@ -66,6 +66,28 @@ struct ReadView : View{
                             Spacer()
                         }
                         Spacer()
+                        // AR Visualization Status Overlay
+                        HStack {
+                                                    VStack(alignment: .leading, spacing: 4) {
+                            if arViewModel.arVisualizationManager.isVisualizationEnabled {
+                                Text("Movement Tracking: ON")
+                                    .font(.caption)
+                                    .foregroundColor(.green)
+                                Text("Max Arrows: \(arViewModel.arVisualizationManager.maxArrows)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            } else {
+                                Text("Movement Tracking: OFF")
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                            }
+                        }
+                            .padding(8)
+                            .background(Color.black.opacity(0.6))
+                            .cornerRadius(8)
+                            Spacer()
+                        }
+                        .padding(.bottom, 10)
                     }
                     .frame(width: arViewWidth, height: arViewHeight)
                     .padding(.bottom, arViewPadding)
