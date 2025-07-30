@@ -73,7 +73,7 @@ struct ModelMetadata {
         self.modelDescription = modelDescription.metadata[.description] as? String ?? "No description"
         
         // Extract input shape if available - simplified approach
-        if let inputDesc = self.inputDescription {
+        if self.inputDescription != nil {
             // For now, set a default shape - can be enhanced later if needed
             self.requiredInputShape = [224, 224, 3] // Common image input shape
         } else {

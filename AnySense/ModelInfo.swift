@@ -8,7 +8,7 @@ struct ModelInfo: Identifiable, Codable, Equatable {
     let source: ModelSource
     var compilationStatus: CompilationStatus
     let fileSize: Int64
-    let uploadDate: Date?
+    let uploadDate: Date
     var isActive: Bool
     
     init(name: String, fileName: String, source: ModelSource, fileSize: Int64 = 0, uploadDate: Date? = nil) {

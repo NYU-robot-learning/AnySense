@@ -184,16 +184,14 @@ struct SettingsView : View{
                                     .foregroundColor(activeModel.compilationStatus.isCompiled ? .green : .orange)
                             }
                             
-                            if let date = activeModel.uploadDate {
-                                HStack {
-                                    Text("Uploaded:")
-                                        .font(.caption)
-                                        .foregroundColor(.gray)
-                                    Spacer()
-                                    Text(date.formatted(date: .abbreviated, time: .omitted))
-                                        .font(.caption)
-                                        .foregroundColor(.gray)
-                                }
+                            HStack {
+                                Text("Uploaded:")
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                                Spacer()
+                                Text(activeModel.uploadDate.formatted(date: .abbreviated, time: .omitted))
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
                             }
                             
                             if activeModel.source == .uploaded && activeModel.fileSize > 0 {
@@ -228,11 +226,9 @@ struct SettingsView : View{
                                         Text(model.statusDescription)
                                             .font(.caption2)
                                             .foregroundColor(model.compilationStatus.isCompiled ? .green : .orange)
-                                        if let date = model.uploadDate {
-                                            Text(date.formatted(date: .abbreviated, time: .omitted))
-                                                .font(.caption2)
-                                                .foregroundColor(.gray)
-                                        }
+                                        Text(model.uploadDate.formatted(date: .abbreviated, time: .omitted))
+                                            .font(.caption2)
+                                            .foregroundColor(.gray)
                                     }
                                     
                                     Spacer()

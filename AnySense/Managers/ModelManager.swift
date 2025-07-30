@@ -151,7 +151,7 @@ class ModelManager: ObservableObject {
             let modelUploadDate = Date() // Use current date as upload date
             
             // Create model info (we'll validate compatibility after compilation)
-            var modelInfo = ModelInfo(
+            let modelInfo = ModelInfo(
                 name: modelName,
                 fileName: fileName,
                 source: .uploaded,
@@ -195,11 +195,11 @@ class ModelManager: ObservableObject {
             print("DEBUG: Final compiled location: \(finalCompiledURL.path)")
             
             // Update model status
-            modelInfo.compilationStatus = .compiled
+            let modelId = modelInfo.id
             
             await MainActor.run {
-                if let index = availableModels.firstIndex(where: { $0.id == modelInfo.id }) {
-                    availableModels[index] = modelInfo
+                if let index = availableModels.firstIndex(where: { $0.id == modelId }) {
+                    availableModels[index].compilationStatus = .compiled
                 }
                 
                 isCompiling = false
@@ -207,7 +207,7 @@ class ModelManager: ObservableObject {
                 saveModelRegistry()
                 
                 // Automatically activate the newly uploaded model
-                setActiveModel(id: modelInfo.id)
+                setActiveModel(id: modelId)
                 
                 print("Successfully compiled model: \(modelName)")
             }

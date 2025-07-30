@@ -45,23 +45,37 @@ struct ReadView : View{
             Color.customizedBackground
                 .ignoresSafeArea()
             ZStack{
-                ARViewContainer(
-                    session: arViewModel.session,
-                    arVisualizationManager: arViewModel.arVisualizationManager
-                )
+                ZStack {
+                    ARViewContainer(
+                        session: arViewModel.session,
+                        arVisualizationManager: arViewModel.arVisualizationManager
+                    )
                     .edgesIgnoringSafeArea(.all)
-                    .frame(width: arViewWidth, height: arViewHeight)
-                // .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-                    .padding(.bottom, arViewPadding)
                     .opacity(appStatus.rgbdVideoStreaming == .off ? 1 : 0)
                     .allowsHitTesting(appStatus.rgbdVideoStreaming == .off) // Disable interaction in streaming mode
+                    
+                    // EdgeTAM Visualization Overlay
+                    if appStatus.rgbdVideoStreaming == .off {
+                        EdgeTAMVisualizationOverlay(edgeTAMManager: arViewModel.edgeTAMManager)
+                    }
+                }
+                .frame(width: arViewWidth, height: arViewHeight)
+                .padding(.bottom, arViewPadding)
                 
-                // ML Inference Results Overlay
-                if appStatus.rgbdVideoStreaming == .off && appStatus.mlInferenceEnabled && arViewModel.mlManager?.isInferenceEnabled == true {
+                // ML and EdgeTAM Status Overlay
+                if appStatus.rgbdVideoStreaming == .off {
                     VStack {
                         HStack {
-                            if let mlManager = arViewModel.mlManager {
-                                MLInferenceResultsView(mlManager: mlManager)
+                            VStack(alignment: .leading, spacing: 8) {
+                                // ML Inference Results (only when enabled)
+                                if appStatus.mlInferenceEnabled && arViewModel.mlManager?.isInferenceEnabled == true {
+                                    if let mlManager = arViewModel.mlManager {
+                                        MLInferenceResultsView(mlManager: mlManager)
+                                    }
+                                }
+                                
+                                // EdgeTAM Status (always show when not streaming)
+                                EdgeTAMStatusView(edgeTAMManager: arViewModel.edgeTAMManager)
                             }
                             Spacer()
                         }

@@ -272,7 +272,7 @@ class ARVisualizationManager: ObservableObject {
     private func createMovementArrow(from: SIMD3<Float>, to: SIMD3<Float>, confidence: Float, timestamp: TimeInterval) {
         guard let arView = arView, let worldOriginAnchor = worldOriginAnchor else { return }
         
-        DispatchQueue.main.async { [weak self, arView, worldOriginAnchor] in
+        DispatchQueue.main.async { [weak self, worldOriginAnchor] in
             guard let self = self else { return }
             
             // Calculate movement vector
@@ -281,10 +281,6 @@ class ARVisualizationManager: ObservableObject {
             
             // Skip tiny movements
             guard movementMagnitude > 0.001 else { return }
-            
-            // Convert positions to world coordinates (relative to world origin)
-            let worldFromPosition = self.worldOrigin + from
-            let worldToPosition = self.worldOrigin + to
             
             // Create arrow entity showing movement from previous to current position
             let arrowEntity = self.createMovementArrowEntity(
