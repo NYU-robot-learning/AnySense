@@ -217,8 +217,11 @@ class ARViewModel: ObservableObject{
                 usleep(10000)
             }
             
-            if self.combinedDepthTransform == nil {
-                print("Depth initialization failed after \(self.maxDepthRetries) attempts.")
+            if self.combinedDepthTransform == nil && self.depthStatus.isDepthAvailable {
+                print("⚠️ Depth initialization failed after \(self.maxDepthRetries) attempts.")
+                print("📋 This is normal for devices without LiDAR or in poor lighting")
+                print("🔄 Fallback 3D conversion will be used for VQ-BeT goal points")
+                // Don't mark as unavailable immediately - let the actual tap attempts handle it
             }
         }
     }
@@ -238,7 +241,9 @@ class ARViewModel: ObservableObject{
     
     private func initializeDepthTransform(frame: ARFrame, flipTransform: CGAffineTransform) -> Bool {
         guard let depthPixelBuffer = frame.sceneDepth?.depthMap else {
-            print("Depth map unavailable. Retrying (\(self.depthRetryCount)/\(self.maxDepthRetries))")
+            if depthRetryCount % 10 == 0 { // Log every 10th attempt to reduce spam
+                print("🔍 Depth map unavailable. Retrying (\(self.depthRetryCount)/\(self.maxDepthRetries))")
+            }
             return false
         }
         let depthSize = CGSize(width: CVPixelBufferGetWidth(depthPixelBuffer), height: CVPixelBufferGetHeight(depthPixelBuffer))
@@ -252,6 +257,7 @@ class ARViewModel: ObservableObject{
             .concatenating(depthDisplayTransform)
             .concatenating(toDepthViewPortTransform)
 
+        print("✅ Depth sensing initialized successfully after \(depthRetryCount) attempts")
         return true
     }
     
@@ -290,13 +296,15 @@ class ARViewModel: ObservableObject{
         // Set the session configuration properties
         if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
             configuration.frameSemantics.insert(.sceneDepth)
+            print("✅ Device supports depth sensing - enabling sceneDepth")
         } else {
             depthStatus.setUnavailable()
+            print("❌ Device does not support depth sensing - using fallback 3D conversion")
         }
         configuration.planeDetection = []
         configuration.environmentTexturing = .none  // No environment texturing
         configuration.sceneReconstruction = []  // No scene reconstruction
-        configuration.isAutoFocusEnabled = false
+        configuration.isAutoFocusEnabled = true  // Enable autofocus for better tracking
         
         // Run the session with the configuration
         session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
@@ -954,6 +962,157 @@ class ARViewModel: ObservableObject{
         } catch {
             print("Error reading directory contents: \(error)")
         }
+    }
+    
+    // MARK: - 3D Point Selection from Screen Coordinates
+    func convertScreenPointTo3DWorldPoint(_ screenPoint: CGPoint, in viewSize: CGSize) -> simd_float3? {
+        print("🔧 convertScreenPointTo3DWorldPoint called with: \(screenPoint) in view size: \(viewSize)")
+        
+        guard let currentFrame = session.currentFrame else {
+            print("❌ No current ARFrame available for 3D point conversion")
+            return nil
+        }
+        
+        // Get depth map and camera intrinsics
+        guard let depthMap = currentFrame.sceneDepth?.depthMap,
+              let confidenceMap = currentFrame.sceneDepth?.confidenceMap else {
+            print("❌ Depth data not available for 3D point conversion")
+            print("   Has sceneDepth: \(currentFrame.sceneDepth != nil)")
+            print("   Has depthMap: \(currentFrame.sceneDepth?.depthMap != nil)")
+            print("   Has confidenceMap: \(currentFrame.sceneDepth?.confidenceMap != nil)")
+            return nil
+        }
+        
+        print("✅ Depth data available for conversion")
+        
+        // Convert screen coordinates to normalized coordinates (0-1 range)
+        let normalizedX = screenPoint.x / viewSize.width
+        let normalizedY = screenPoint.y / viewSize.height
+        
+        // Get depth buffer dimensions
+        let depthWidth = CVPixelBufferGetWidth(depthMap)
+        let depthHeight = CVPixelBufferGetHeight(depthMap)
+        
+        // Convert to depth buffer coordinates
+        let depthX = Int(normalizedX * CGFloat(depthWidth))
+        let depthY = Int(normalizedY * CGFloat(depthHeight))
+        
+        // Ensure coordinates are within bounds
+        guard depthX >= 0, depthX < depthWidth, depthY >= 0, depthY < depthHeight else {
+            print("Screen coordinates out of depth buffer bounds")
+            return nil
+        }
+        
+        // Lock depth buffer for reading
+        CVPixelBufferLockBaseAddress(depthMap, .readOnly)
+        CVPixelBufferLockBaseAddress(confidenceMap, .readOnly)
+        defer {
+            CVPixelBufferUnlockBaseAddress(confidenceMap, .readOnly)
+            CVPixelBufferUnlockBaseAddress(depthMap, .readOnly)
+        }
+        
+        // Get depth value
+        guard let depthBuffer = CVPixelBufferGetBaseAddress(depthMap),
+              let confidenceBuffer = CVPixelBufferGetBaseAddress(confidenceMap) else {
+            print("Failed to get depth buffer addresses")
+            return nil
+        }
+        
+        let depthPointer = depthBuffer.assumingMemoryBound(to: Float32.self)
+        let confidencePointer = confidenceBuffer.assumingMemoryBound(to: UInt8.self)
+        
+        let depthIndex = depthY * CVPixelBufferGetBytesPerRow(depthMap) / MemoryLayout<Float32>.size + depthX
+        let confidenceIndex = depthY * CVPixelBufferGetBytesPerRow(confidenceMap) + depthX
+        
+        let depthValue = depthPointer[depthIndex]
+        let confidenceValue = confidencePointer[confidenceIndex]
+        
+        // Check if depth value is valid (confidence should be reasonable)
+        guard confidenceValue > 1, depthValue > 0.1, depthValue < 10.0 else {
+            print("Invalid depth value: \(depthValue)m, confidence: \(confidenceValue)")
+            return nil
+        }
+        
+        // Get camera intrinsics
+        let intrinsics = currentFrame.camera.intrinsics
+        let fx = intrinsics.columns.0.x
+        let fy = intrinsics.columns.1.y
+        let cx = intrinsics.columns.2.x
+        let cy = intrinsics.columns.2.y
+        
+        // Convert to camera space using RGB camera intrinsics
+        let rgbWidth = CVPixelBufferGetWidth(currentFrame.capturedImage)
+        let rgbHeight = CVPixelBufferGetHeight(currentFrame.capturedImage)
+        
+        // Convert screen point to RGB image coordinates
+        let imageX = normalizedX * CGFloat(rgbWidth)
+        let imageY = normalizedY * CGFloat(rgbHeight)
+        
+        // Unproject to camera space
+        let cameraX = (Float(imageX) - cx) * depthValue / fx
+        let cameraY = (Float(imageY) - cy) * depthValue / fy
+        let cameraZ = -depthValue  // Camera looks down negative Z
+        
+        // Transform from camera space to world space
+        let cameraSpacePoint = simd_float4(cameraX, cameraY, cameraZ, 1.0)
+        let worldTransform = currentFrame.camera.transform
+        let worldPoint = worldTransform * cameraSpacePoint
+        
+        let result = simd_float3(worldPoint.x, worldPoint.y, worldPoint.z)
+        print("🎯 Converted screen point (\(screenPoint.x), \(screenPoint.y)) to 3D world point: (\(result.x), \(result.y), \(result.z)) with depth \(depthValue)m")
+        
+        return result
+    }
+    
+    // MARK: - Fallback 3D Point Conversion (without depth data)
+    func convertScreenPointToFallback3D(_ screenPoint: CGPoint, in viewSize: CGSize) -> simd_float3? {
+        print("🔧 convertScreenPointToFallback3D called with: \(screenPoint) in view size: \(viewSize)")
+        print("⚠️ Using fallback method - depth data not available")
+        
+        guard let currentFrame = session.currentFrame else {
+            print("❌ No current ARFrame available for fallback 3D conversion")
+            return nil
+        }
+        
+        // Use a reasonable default depth value (1.5 meters in front of camera)
+        let assumedDepth: Float = 1.5
+        print("📏 Using assumed depth: \(assumedDepth)m")
+        
+        // Convert screen coordinates to normalized coordinates (0-1 range) - SAME AS WORKING VERSION
+        let normalizedX = screenPoint.x / viewSize.width
+        let normalizedY = screenPoint.y / viewSize.height
+        
+        // Get camera intrinsics - SAME AS WORKING VERSION
+        let intrinsics = currentFrame.camera.intrinsics
+        let fx = intrinsics.columns.0.x
+        let fy = intrinsics.columns.1.y
+        let cx = intrinsics.columns.2.x
+        let cy = intrinsics.columns.2.y
+        
+        // Convert to RGB image coordinates - SAME AS WORKING VERSION
+        let rgbWidth = CVPixelBufferGetWidth(currentFrame.capturedImage)
+        let rgbHeight = CVPixelBufferGetHeight(currentFrame.capturedImage)
+        let imageX = normalizedX * CGFloat(rgbWidth)
+        let imageY = normalizedY * CGFloat(rgbHeight)
+        
+        print("📐 Normalized: (\(normalizedX), \(normalizedY))")
+        print("📐 RGB dimensions: \(rgbWidth)x\(rgbHeight)")
+        print("📐 Image coordinates: (\(imageX), \(imageY))")
+        
+        // Unproject to camera space using assumed depth
+        let cameraX = (Float(imageX) - cx) * assumedDepth / fx
+        let cameraY = (Float(imageY) - cy) * assumedDepth / fy
+        let cameraZ = -assumedDepth  // Camera looks down negative Z
+        
+        // Transform from camera space to world space
+        let cameraSpacePoint = simd_float4(cameraX, cameraY, cameraZ, 1.0)
+        let worldTransform = currentFrame.camera.transform
+        let worldPoint = worldTransform * cameraSpacePoint
+        
+        let result = simd_float3(worldPoint.x, worldPoint.y, worldPoint.z)
+        print("🎯 Fallback conversion: screen (\(screenPoint.x), \(screenPoint.y)) → 3D world (\(result.x), \(result.y), \(result.z)) @ \(assumedDepth)m")
+        
+        return result
     }
     
     // MARK: - Model Manager Integration

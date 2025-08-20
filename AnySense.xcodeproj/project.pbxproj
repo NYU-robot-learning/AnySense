@@ -7,6 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		01287B7C2E314C9F008A3598 /* EdgeTAMManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01287B7B2E314C9F008A3598 /* EdgeTAMManager.swift */; };
+		01287B7E2E314CAA008A3598 /* EdgeTAMStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01287B7D2E314CAA008A3598 /* EdgeTAMStatusView.swift */; };
+		01287B7F2E314CBB008A3598 /* EdgeTAMVisualizationOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01287B8A2E314CBB008A3598 /* EdgeTAMVisualizationOverlay.swift */; };
+		01287B8B2E314CCC008A3598 /* VQBeTGoalControlsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01287B8C2E314CCC008A3598 /* VQBeTGoalControlsView.swift */; };
+		01287B8D2E314CDD008A3598 /* ModelMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01287B8E2E314CDD008A3598 /* ModelMetadata.swift */; };
+		012F7F392E39AD3E006D93C2 /* BoundaryTrackingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 012F7F382E39AD3E006D93C2 /* BoundaryTrackingManager.swift */; };
 		01682BC42DF0D88100CDA03C /* ModelInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F5B7C92DEA6A1000061B16 /* ModelInfo.swift */; };
 		01682BC52DF0D88C00CDA03C /* MLModel+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F5B7CB2DEA6A2000061B16 /* MLModel+Extensions.swift */; };
 		01682BC92DF4D7CB00CDA03C /* ARVisualizationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01682BC82DF4D7CB00CDA03C /* ARVisualizationManager.swift */; };
@@ -47,6 +53,12 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		01287B7B2E314C9F008A3598 /* EdgeTAMManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EdgeTAMManager.swift; sourceTree = "<group>"; };
+		01287B7D2E314CAA008A3598 /* EdgeTAMStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EdgeTAMStatusView.swift; sourceTree = "<group>"; };
+		01287B8A2E314CBB008A3598 /* EdgeTAMVisualizationOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EdgeTAMVisualizationOverlay.swift; sourceTree = "<group>"; };
+		01287B8C2E314CCC008A3598 /* VQBeTGoalControlsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VQBeTGoalControlsView.swift; sourceTree = "<group>"; };
+		01287B8E2E314CDD008A3598 /* ModelMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelMetadata.swift; sourceTree = "<group>"; };
+		012F7F382E39AD3E006D93C2 /* BoundaryTrackingManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoundaryTrackingManager.swift; sourceTree = "<group>"; };
 		01682BC82DF4D7CB00CDA03C /* ARVisualizationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ARVisualizationManager.swift; sourceTree = "<group>"; };
 		01F5B7C32DEA697200061B16 /* MLInferenceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLInferenceManager.swift; sourceTree = "<group>"; };
 		01F5B7C52DEA698D00061B16 /* MLInferenceResultsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLInferenceResultsView.swift; sourceTree = "<group>"; };
@@ -126,6 +138,7 @@
 			children = (
 				01981E6C2DEA655900773CE6 /* Models */,
 				01F5B7C92DEA6A1000061B16 /* ModelInfo.swift */,
+				01287B8E2E314CDD008A3598 /* ModelMetadata.swift */,
 				01F5B7CB2DEA6A2000061B16 /* MLModel+Extensions.swift */,
 				B9944A332CFE982E00232FBB /* MainPage.swift */,
 				B997CCD22D4E081300F62B49 /* dataStorage.swift */,
@@ -142,7 +155,9 @@
 		B9E4B22C2D62A9BA0032E877 /* Managers */ = {
 			isa = PBXGroup;
 			children = (
+				012F7F382E39AD3E006D93C2 /* BoundaryTrackingManager.swift */,
 				B9E4B2282D62A9BA0032E877 /* ARViewContainer.swift */,
+				01287B7B2E314C9F008A3598 /* EdgeTAMManager.swift */,
 				01F5B7C32DEA697200061B16 /* MLInferenceManager.swift */,
 				01682BC82DF4D7CB00CDA03C /* ARVisualizationManager.swift */,
 				01F5B7C72DEA6A0000061B16 /* ModelManager.swift */,
@@ -155,7 +170,10 @@
 		B9E4B2352D62A9C40032E877 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				01287B7D2E314CAA008A3598 /* EdgeTAMStatusView.swift */,
+				01287B8A2E314CBB008A3598 /* EdgeTAMVisualizationOverlay.swift */,
 				01F5B7C52DEA698D00061B16 /* MLInferenceResultsView.swift */,
+				01287B8C2E314CCC008A3598 /* VQBeTGoalControlsView.swift */,
 				B9E4B2312D62A9C40032E877 /* accountView.swift */,
 				B9E4B2322D62A9C40032E877 /* ContentView.swift */,
 				B9E4B2332D62A9C40032E877 /* peripheralView.swift */,
@@ -345,18 +363,24 @@
 				01682BC42DF0D88100CDA03C /* ModelInfo.swift in Sources */,
 				B9E4B2362D62A9C40032E877 /* peripheralView.swift in Sources */,
 				01682BC92DF4D7CB00CDA03C /* ARVisualizationManager.swift in Sources */,
+				012F7F392E39AD3E006D93C2 /* BoundaryTrackingManager.swift in Sources */,
 				B9E4B2372D62A9C40032E877 /* accountView.swift in Sources */,
 				B9E4B2382D62A9C40032E877 /* readView.swift in Sources */,
 				B9E4B2392D62A9C40032E877 /* ContentView.swift in Sources */,
 				B997CCD52D4E082900F62B49 /* AnySenseApp.swift in Sources */,
 				B997CCD32D4E081300F62B49 /* dataStorage.swift in Sources */,
+				01287B7E2E314CAA008A3598 /* EdgeTAMStatusView.swift in Sources */,
+				01287B7F2E314CBB008A3598 /* EdgeTAMVisualizationOverlay.swift in Sources */,
 				01682BC52DF0D88C00CDA03C /* MLModel+Extensions.swift in Sources */,
 				01F5B7C42DEA697200061B16 /* MLInferenceManager.swift in Sources */,
+				01287B7C2E314C9F008A3598 /* EdgeTAMManager.swift in Sources */,
 				01F5B7C82DEA6A0000061B16 /* ModelManager.swift in Sources */,
 				B9E4B22D2D62A9BA0032E877 /* BluetoothManager.swift in Sources */,
 				B9E4B22F2D62A9BA0032E877 /* ARViewContainer.swift in Sources */,
 				B9E4B2302D62A9BA0032E877 /* USBManager.swift in Sources */,
 				01F5B7C62DEA698D00061B16 /* MLInferenceResultsView.swift in Sources */,
+				01287B8B2E314CCC008A3598 /* VQBeTGoalControlsView.swift in Sources */,
+				01287B8D2E314CDD008A3598 /* ModelMetadata.swift in Sources */,
 				B9944A342CFE983300232FBB /* MainPage.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

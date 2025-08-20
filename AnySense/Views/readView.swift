@@ -27,6 +27,7 @@ struct ReadView : View{
     @State var openFlash = true
     @State private var activeAlert: ActiveAlert = .first
     @State private var isRecordedOnce: Bool = false
+    @State private var vqbetTapMode: Bool = false
     var body : some View{
         let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
         GeometryReader { geometry in
@@ -53,10 +54,40 @@ struct ReadView : View{
                     .edgesIgnoringSafeArea(.all)
                     .opacity(appStatus.rgbdVideoStreaming == .off ? 1 : 0)
                     .allowsHitTesting(appStatus.rgbdVideoStreaming == .off) // Disable interaction in streaming mode
+                    .onTapGesture { location in
+                        print("👆 Tap detected at: \(location), vqbetTapMode: \(vqbetTapMode)")
+                        
+                        // Handle 3D point selection for VQ-BeT goal setting
+                        if vqbetTapMode {
+                            print("🎯 VQ-BeT tap mode active - processing tap")
+                            let arViewSize = CGSize(width: arViewWidth, height: arViewHeight)
+                            print("🔧 AR view size: \(arViewSize)")
+                            
+                            if let worldPoint = arViewModel.convertScreenPointTo3DWorldPoint(location, in: arViewSize) {
+                                print("🎯 Successfully converted to world point: \(worldPoint)")
+                                arViewModel.mlManager?.setGoalPoint(worldPoint)
+                                print("🎯 Goal point set via mlManager")
+                            } else {
+                                print("⚠️ 3D conversion failed, using fallback method")
+                                // Fallback: Convert screen tap to approximate 3D point without depth
+                                if let fallbackPoint = arViewModel.convertScreenPointToFallback3D(location, in: arViewSize) {
+                                    arViewModel.mlManager?.setGoalPoint(fallbackPoint)
+                                    print("🎯 Fallback goal point set to: \(fallbackPoint)")
+                                } else {
+                                    print("❌ Fallback 3D conversion also failed")
+                                }
+                            }
+                        } else {
+                            print("❌ VQ-BeT tap mode not active")
+                        }
+                    }
                     
-                    // EdgeTAM Visualization Overlay
-                    if appStatus.rgbdVideoStreaming == .off {
-                        EdgeTAMVisualizationOverlay(edgeTAMManager: arViewModel.edgeTAMManager)
+                    // EdgeTAM Visualization Overlay (disabled when VQ-BeT is in tap mode or EdgeTAM is disabled)
+                    if appStatus.rgbdVideoStreaming == .off && appStatus.edgeTAMEnabled {
+                        EdgeTAMVisualizationOverlay(
+                            edgeTAMManager: arViewModel.edgeTAMManager,
+                            disablePromptMode: vqbetTapMode
+                        )
                     }
                 }
                 .frame(width: arViewWidth, height: arViewHeight)
@@ -71,11 +102,35 @@ struct ReadView : View{
                                 if appStatus.mlInferenceEnabled && arViewModel.mlManager?.isInferenceEnabled == true {
                                     if let mlManager = arViewModel.mlManager {
                                         MLInferenceResultsView(mlManager: mlManager)
+                                        
+                                                        // VQ-BeT Goal Point Controls (only for VQ-BeT models)
+                                        if mlManager.requiresGoalInput {
+                                            VQBeTGoalControlsView(
+                                                mlManager: mlManager, 
+                                                arViewModel: arViewModel,
+                                                tapToSetMode: $vqbetTapMode,
+                                                onTapToSet: { location, viewSize in
+                                                    if let worldPoint = arViewModel.convertScreenPointTo3DWorldPoint(location, in: viewSize) {
+                                                        mlManager.setGoalPoint(worldPoint)
+                                                    } else {
+                                                        // Fallback method when depth is unavailable
+                                                        if let fallbackPoint = arViewModel.convertScreenPointToFallback3D(location, in: viewSize) {
+                                                            mlManager.setGoalPoint(fallbackPoint)
+                                                        }
+                                                    }
+                                                }
+                                            )
+                                            .onAppear {
+                                                print("🎯 VQ-BeT goal controls appeared")
+                                            }
+                                        }
                                     }
                                 }
                                 
-                                // EdgeTAM Status (always show when not streaming)
-                                EdgeTAMStatusView(edgeTAMManager: arViewModel.edgeTAMManager)
+                                // EdgeTAM Status (only show when enabled and not streaming)
+                                if appStatus.edgeTAMEnabled {
+                                    EdgeTAMStatusView(edgeTAMManager: arViewModel.edgeTAMManager)
+                                }
                             }
                             Spacer()
                         }
@@ -317,6 +372,10 @@ struct ReadView : View{
                 arViewModel.mlManager?.disableInference()
             }
         }
+        .onChange(of: appStatus.edgeTAMEnabled) { oldValue, newValue in
+            arViewModel.edgeTAMManager.isEnabled = newValue
+            print("EdgeTAM \(newValue ? "enabled" : "disabled")")
+        }
         .onAppear {
             initCode()
         }
@@ -341,6 +400,9 @@ struct ReadView : View{
         } else {
             arViewModel.mlManager?.disableInference()
         }
+        
+        // Sync EdgeTAM setting
+        arViewModel.edgeTAMManager.isEnabled = appStatus.edgeTAMEnabled
     }
     
     private func handleStreamingModeChange(from oldMode: StreamingMode, to newMode: StreamingMode) {

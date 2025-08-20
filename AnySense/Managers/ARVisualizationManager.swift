@@ -48,6 +48,8 @@ class ARVisualizationManager: ObservableObject {
     private var arView: ARView?
     private var worldOriginAnchor: AnchorEntity?
     private var movementArrows: [DirectionalArrow] = []
+    private var goalPointMarker: Entity?
+    private var goalPointAnchor: AnchorEntity?
     private var lastVisualizationTime: CFTimeInterval = 0
     
     // Movement tracking
@@ -82,7 +84,7 @@ class ARVisualizationManager: ObservableObject {
     func startRecordingVisualization() {
         print("startRecordingVisualization called")
         
-        guard let arView = arView else { 
+        guard arView != nil else { 
             print("ARView not available for visualization")
             return 
         }
@@ -419,5 +421,66 @@ class ARVisualizationManager: ObservableObject {
         let z = cos_phi_2 * cos_theta_2 * sin_psi_2 - sin_phi_2 * sin_theta_2 * cos_psi_2
         
         return simd_quatf(ix: x, iy: y, iz: z, r: w)
+    }
+    
+    // MARK: - Goal Point Visualization
+    func setGoalPointMarker(at worldPosition: SIMD3<Float>) {
+        print("🔍 setGoalPointMarker called with position: \(worldPosition)")
+        print("🔍 arView available: \(arView != nil)")
+        print("🔍 worldOriginAnchor available: \(worldOriginAnchor != nil)")
+        print("🔍 hasEstablishedOrigin: \(hasEstablishedOrigin)")
+        
+        guard let arView = arView else { 
+            print("❌ ARView not available for goal marker")
+            return 
+        }
+        
+        // No need for worldOriginAnchor - we create direct world anchors for goal markers
+        
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
+            print("🎯 Creating goal point marker...")
+            
+            // Remove existing marker and its anchor
+            self.goalPointAnchor?.removeFromParent()
+            self.goalPointMarker = nil
+            
+            // Create a new anchor directly at the world position
+            let goalAnchor = AnchorEntity(world: worldPosition)
+            
+            // Create new goal point marker
+            let marker = self.createGoalPointMarker()
+            marker.position = SIMD3<Float>(0, 0, 0) // Position relative to anchor
+            goalAnchor.addChild(marker)
+            
+            // Add anchor to scene
+            arView.scene.addAnchor(goalAnchor)
+            self.goalPointMarker = marker
+            self.goalPointAnchor = goalAnchor
+            
+            print("✅ Goal point marker placed at world position: (\(String(format: "%.3f", worldPosition.x)), \(String(format: "%.3f", worldPosition.y)), \(String(format: "%.3f", worldPosition.z)))")
+            print("📍 Created new anchor with marker")
+        }
+    }
+    
+    func removeGoalPointMarker() {
+        DispatchQueue.main.async { [weak self] in
+            self?.goalPointAnchor?.removeFromParent()
+            self?.goalPointMarker = nil
+            self?.goalPointAnchor = nil
+            print("🎯 Goal point marker and anchor removed")
+        }
+    }
+    
+    private func createGoalPointMarker() -> Entity {
+        // Simple green sphere like EdgeTAM prompts
+        let sphereMesh = MeshResource.generateSphere(radius: 0.02) // 2cm radius - similar to EdgeTAM
+        let sphereMaterial = SimpleMaterial(color: .green, isMetallic: false)
+        let sphereEntity = ModelEntity(mesh: sphereMesh, materials: [sphereMaterial])
+        
+        print("🎨 Created simple green goal point marker")
+        
+        return sphereEntity
     }
 }

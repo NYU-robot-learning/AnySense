@@ -80,26 +80,42 @@ class ModelManager: ObservableObject {
     
     // MARK: - Bundled Model Setup
     private func setupBundledModel() {
-        // Check if bundled model already exists in registry
-        let bundledModelName = "GeneralPickUpV1"
+        // Setup bundled models
+        let bundledModels = [
+            (name: "GeneralPickUpV1", fileName: "GeneralPickUpV1.mlmodel"),
+            (name: "VQBeT_Simple", fileName: "VQBeT_Simple.mlpackage")
+        ]
         
-        if !availableModels.contains(where: { $0.source == .bundled && $0.name == bundledModelName }) {
-            let bundledModel = ModelInfo(
-                name: bundledModelName,
-                fileName: "\(bundledModelName).mlmodel",
-                source: .bundled
-            )
-            
-            var updatedModel = bundledModel
-            updatedModel.compilationStatus = .compiled
-            
-            availableModels.append(updatedModel)
-            
-            // Set as active if no active model
-            if activeModel == nil {
-                setActiveModel(id: updatedModel.id)
+        var newModelsAdded = false
+        var firstAddedModel: ModelInfo?
+        
+        for (name, fileName) in bundledModels {
+            if !availableModels.contains(where: { $0.source == .bundled && $0.name == name }) {
+                let bundledModel = ModelInfo(
+                    name: name,
+                    fileName: fileName,
+                    source: .bundled
+                )
+                
+                var updatedModel = bundledModel
+                updatedModel.compilationStatus = .compiled
+                
+                availableModels.append(updatedModel)
+                
+                if firstAddedModel == nil {
+                    firstAddedModel = updatedModel
+                }
+                newModelsAdded = true
+                print("Added bundled model: \(name)")
             }
-            
+        }
+        
+        // Set first added model as active if no active model exists
+        if activeModel == nil, let defaultModel = firstAddedModel {
+            setActiveModel(id: defaultModel.id)
+        }
+        
+        if newModelsAdded {
             saveModelRegistry()
         }
     }
@@ -167,7 +183,7 @@ class ModelManager: ObservableObject {
             
             // Compile the local model (this will fail if model is invalid)
             let tempCompiledURL = try await MLModel.compileModel(at: localModelURL) { [weak self] progress in
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak self] in
                     self?.compilationProgress = progress
                 }
             }
@@ -288,9 +304,10 @@ class ModelManager: ObservableObject {
     func getModelURL(for modelInfo: ModelInfo) -> URL? {
         switch modelInfo.source {
         case .bundled:
-            // Try to get from bundle first
+            // Try to get from bundle with various extensions
             if let bundleURL = Bundle.main.url(forResource: modelInfo.name, withExtension: "mlmodel") ??
-                               Bundle.main.url(forResource: modelInfo.name, withExtension: "mlmodelc") {
+                               Bundle.main.url(forResource: modelInfo.name, withExtension: "mlmodelc") ??
+                               Bundle.main.url(forResource: modelInfo.name, withExtension: "mlpackage") {
                 return bundleURL
             }
             return nil

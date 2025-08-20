@@ -20,7 +20,7 @@ extension MLModel {
                     let progressSteps = [0.3, 0.5, 0.7, 0.9]
                     for progress in progressSteps {
                         progressHandler(progress)
-                        Thread.sleep(forTimeInterval: 0.5) // Small delay for visual feedback
+                        usleep(500000) // Small delay for visual feedback (0.5 seconds)
                     }
                     
                     progressHandler(1.0)
@@ -33,11 +33,6 @@ extension MLModel {
         }
     }
     
-    /// Validate model compatibility and extract metadata
-    static func validateModel(at url: URL) throws -> ModelMetadata {
-        let model = try MLModel(contentsOf: url)
-        return try ModelMetadata(from: model)
-    }
     
     /// Get model file size
     static func getModelSize(at url: URL) -> Int64 {
@@ -50,60 +45,6 @@ extension MLModel {
     }
 }
 
-// MARK: - Model Metadata
-struct ModelMetadata {
-    let inputDescription: MLFeatureDescription?
-    let outputDescription: MLFeatureDescription?
-    let modelDescription: String
-    let isCompatible: Bool
-    let requiredInputShape: [Int]?
-    let expectedOutputCount: Int?
-    let outputFeatureNames: [String]
-    let primaryOutputName: String?
-    
-    init(from model: MLModel) throws {
-        let modelDescription = model.modelDescription
-        
-        // Get input description (assuming single input for now)
-        self.inputDescription = modelDescription.inputDescriptionsByName.values.first
-        
-        // Get output description
-        self.outputDescription = modelDescription.outputDescriptionsByName.values.first
-        
-        self.modelDescription = modelDescription.metadata[.description] as? String ?? "No description"
-        
-        // Extract input shape if available - simplified approach
-        if self.inputDescription != nil {
-            // For now, set a default shape - can be enhanced later if needed
-            self.requiredInputShape = [224, 224, 3] // Common image input shape
-        } else {
-            self.requiredInputShape = nil
-        }
-        
-        // Expected output count (7 joint actions for our use case)
-        self.expectedOutputCount = modelDescription.outputDescriptionsByName.count
-        
-        // Extract output feature names for dynamic handling
-        self.outputFeatureNames = Array(modelDescription.outputDescriptionsByName.keys).sorted()
-        self.primaryOutputName = self.outputFeatureNames.first
-
-        // Check compatibility inline - avoid calling self method before initialization complete
-        self.isCompatible = !modelDescription.inputDescriptionsByName.isEmpty && 
-                           !modelDescription.outputDescriptionsByName.isEmpty &&
-                           modelDescription.inputDescriptionsByName.values.contains { desc in
-                               switch desc.type {
-                               case .image, .multiArray: return true
-                               default: return false
-                               }
-                           } &&
-                           modelDescription.outputDescriptionsByName.values.contains { desc in
-                               switch desc.type {
-                               case .multiArray: return true
-                               default: return false
-                               }
-                           }
-    }
-}
 
 // MARK: - Model File Utilities
 struct ModelFileUtilities {

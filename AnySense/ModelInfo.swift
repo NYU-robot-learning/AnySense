@@ -93,11 +93,12 @@ enum CompilationStatus: Codable, Equatable {
 struct ModelRegistry: Codable {
     var models: [ModelInfo]
     var activeModelID: UUID?
-    let version: String = "1.0"
+    var version: String
     
     init() {
         self.models = []
         self.activeModelID = nil
+        self.version = "1.0"
     }
     
     mutating func addModel(_ model: ModelInfo) {

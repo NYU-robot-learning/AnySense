@@ -28,6 +28,7 @@ class EdgeTAMManager: ObservableObject {
     private var frameCounter: Int = 0
     private let frameInterval: Int = 30 // Process every 30th frame
     
+    @Published var isEnabled: Bool = true
     @Published var isProcessing: Bool = false
     @Published var latestFeatures: MLMultiArray?
     @Published var latestHighResFeats: (MLMultiArray?, MLMultiArray?) = (nil, nil)
@@ -102,7 +103,8 @@ class EdgeTAMManager: ObservableObject {
             print("EdgeTAM Mask Decoder not found")
         }
         
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
             self.isModelLoaded = (modelsLoaded == totalModels)
             if self.isModelLoaded {
                 print("All EdgeTAM models loaded successfully")
@@ -114,6 +116,9 @@ class EdgeTAMManager: ObservableObject {
     
     // MARK: - Frame Processing
     func processFrameIfNeeded(_ pixelBuffer: CVPixelBuffer, timestamp: CFTimeInterval) {
+        // Skip processing if EdgeTAM is disabled
+        guard isEnabled else { return }
+        
         frameCounter += 1
         
         // Only process every nth frame
@@ -122,7 +127,7 @@ class EdgeTAMManager: ObservableObject {
         // Skip if already processing
         guard !isProcessing else { return }
         
-        processingQueue.async { @Sendable [weak self] in
+        processingQueue.async { [weak self] in
             self?.processFrame(pixelBuffer, timestamp: timestamp)
         }
     }
@@ -133,8 +138,8 @@ class EdgeTAMManager: ObservableObject {
             return
         }
         
-        DispatchQueue.main.async {
-            self.isProcessing = true
+        DispatchQueue.main.async { [weak self] in
+            self?.isProcessing = true
         }
         
         let startTime = CACurrentMediaTime()
@@ -175,21 +180,21 @@ class EdgeTAMManager: ObservableObject {
                 }
             }
             
-            DispatchQueue.main.async {
-                self.latestFeatures = visionFeatures
-                self.latestHighResFeats = (highResFeat0, highResFeat1)
-                self.processingTime = processingTime
-                self.isProcessing = false
-                self.processedFrameCount += 1
-                self.latestSegmentationMask = segmentationMask
+            DispatchQueue.main.async { [weak self] in
+                self?.latestFeatures = visionFeatures
+                self?.latestHighResFeats = (highResFeat0, highResFeat1)
+                self?.processingTime = processingTime
+                self?.isProcessing = false
+                self?.processedFrameCount += 1
+                self?.latestSegmentationMask = segmentationMask
             }
             
             print("EdgeTAM processed frame \(self.frameCounter) - Time: \(String(format: "%.1f", processingTime * 1000))ms")
             
         } catch {
             print("EdgeTAM processing error: \(error)")
-            DispatchQueue.main.async {
-                self.isProcessing = false
+            DispatchQueue.main.async { [weak self] in
+                self?.isProcessing = false
             }
         }
     }
@@ -567,7 +572,7 @@ class EdgeTAMManager: ObservableObject {
         }
         
         return await withCheckedContinuation { continuation in
-            processingQueue.async { @Sendable [weak self] in
+            processingQueue.async { [weak self] in
                 let mask = self?.runSegmentationPipeline(
                     visionFeatures: visionFeatures,
                     highResFeat0: highResFeat0,

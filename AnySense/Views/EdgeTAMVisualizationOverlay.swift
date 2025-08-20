@@ -9,9 +9,15 @@ import SwiftUI
 
 struct EdgeTAMVisualizationOverlay: View {
     @ObservedObject var edgeTAMManager: EdgeTAMManager
+    let disablePromptMode: Bool
     @State private var showVisualization: Bool = false
     @State private var overlayOpacity: Double = 0.7
     @State private var isPromptMode: Bool = false
+    
+    init(edgeTAMManager: EdgeTAMManager, disablePromptMode: Bool = false) {
+        self.edgeTAMManager = edgeTAMManager
+        self.disablePromptMode = disablePromptMode
+    }
     
     var body: some View {
         GeometryReader { geometry in
@@ -28,8 +34,8 @@ struct EdgeTAMVisualizationOverlay: View {
                     }
                 }
                 
-                // Tap gesture overlay for adding prompts
-                if isPromptMode {
+                // Tap gesture overlay for adding prompts (disabled when VQ-BeT is in tap mode)
+                if isPromptMode && !disablePromptMode {
                     Color.clear
                         .contentShape(Rectangle())
                         .onTapGesture { location in

@@ -273,6 +273,16 @@ struct SettingsView : View{
                     }
                     .padding(.vertical, 5)
                     
+                    // EdgeTAM Toggle
+                    HStack {
+                        Text("EdgeTAM Vision")
+                            .font(.body)
+                            .foregroundColor(.primary)
+                        Spacer()
+                        Toggle("", isOn: $appStatus.edgeTAMEnabled)
+                    }
+                    .padding(.vertical, 5)
+                    
                     // Inference Frequency Slider
                     if let mlManager = arViewModel.mlManager {
                         VStack(alignment: .leading, spacing: 12) {
