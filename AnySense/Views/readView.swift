@@ -54,15 +54,12 @@ struct ReadView : View{
                     .opacity(appStatus.rgbdVideoStreaming == .off ? 1 : 0)
                     .allowsHitTesting(appStatus.rgbdVideoStreaming == .off) // Disable interaction in streaming mode
                     
-                    // EdgeTAM Visualization Overlay
-                    if appStatus.rgbdVideoStreaming == .off {
-                        EdgeTAMVisualizationOverlay(edgeTAMManager: arViewModel.edgeTAMManager)
-                    }
+                    
                 }
                 .frame(width: arViewWidth, height: arViewHeight)
                 .padding(.bottom, arViewPadding)
                 
-                // ML and EdgeTAM Status Overlay
+                // ML Status Overlay
                 if appStatus.rgbdVideoStreaming == .off {
                     VStack {
                         HStack {
@@ -74,8 +71,6 @@ struct ReadView : View{
                                     }
                                 }
                                 
-                                // EdgeTAM Status (always show when not streaming)
-                                EdgeTAMStatusView(edgeTAMManager: arViewModel.edgeTAMManager)
                             }
                             Spacer()
                         }

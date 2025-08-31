@@ -84,8 +84,7 @@ class ARViewModel: ObservableObject{
     // AR Visualization Manager for 3D pose visualization
     @Published var arVisualizationManager = ARVisualizationManager()
     
-    // EdgeTAM Manager for vision features extraction
-    @Published var edgeTAMManager = EdgeTAMManager()
+    
 
     public var userFPS: Double?
     public var isColorMapOpened = false
@@ -435,8 +434,7 @@ class ARViewModel: ObservableObject{
         // Perform ML inference on the RGB frame during streaming
         mlManager?.performInference(on: rgbPixelBuffer, timestamp: CACurrentMediaTime())
         
-        // Process frame with EdgeTAM model (every 8th frame)
-        edgeTAMManager.processFrameIfNeeded(rgbPixelBuffer, timestamp: CACurrentMediaTime())
+        
 
         // TODO: Check if we need to change this at all
         var depthPixelBuffer: CVPixelBuffer? = nil
@@ -915,8 +913,7 @@ class ARViewModel: ObservableObject{
         // Perform ML inference on the RGB frame
         mlManager?.performInference(on: rgbPixelBuffer, timestamp: CACurrentMediaTime())
         
-        // Process frame with EdgeTAM model (every 8th frame)
-        edgeTAMManager.processFrameIfNeeded(rgbPixelBuffer, timestamp: CACurrentMediaTime())
+        
         
         let cropRect = CGRect(
             x: 0, y: 0, width: self.viewPortSize.width, height: self.viewPortSize.height
