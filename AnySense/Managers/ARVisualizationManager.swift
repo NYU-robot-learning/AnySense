@@ -124,11 +124,8 @@ class ARVisualizationManager: ObservableObject {
         previousWorldPosition = nil
         hasEstablishedOrigin = true
         
-        // Create anchor at world origin
-        worldOriginAnchor = AnchorEntity(world: worldOrigin)
-        arView.scene.addAnchor(worldOriginAnchor!)
-        
-        print("🌍 World origin established at: \(worldOrigin)")
+        // No anchor creation needed for visualization
+        print("🌍 World origin set (no anchor created) at: \(worldOrigin)")
     }
     
     private func resetMovementTracking() {
