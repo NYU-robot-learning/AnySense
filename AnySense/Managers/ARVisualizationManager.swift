@@ -50,6 +50,10 @@ class ARVisualizationManager: ObservableObject {
     private var movementArrows: [DirectionalArrow] = []
     private var lastVisualizationTime: CFTimeInterval = 0
     
+    // Target/device pose state for point-conditioned flows
+    private var targetPose: SIMD3<Float>?
+    private var actualDevicePose: SIMD3<Float> = SIMD3<Float>(0, 0, 0)
+    
     // Movement tracking
     private var worldOrigin: SIMD3<Float> = SIMD3<Float>(0, 0, 0)
     private var currentWorldPosition: SIMD3<Float> = SIMD3<Float>(0, 0, 0)
@@ -182,6 +186,24 @@ class ARVisualizationManager: ObservableObject {
     func setVisualizationFrequency(_ frequency: VisualizationFrequency) {
         visualizationFrequency = frequency
         print("AR Visualization frequency set to: \(frequency.displayName)")
+    }
+    
+    // MARK: - Odometry/Device Pose Integration
+    func updateActualDevicePose(from arFrame: ARFrame) {
+        let t = arFrame.camera.transform
+        actualDevicePose = SIMD3<Float>(t.columns.3.x, t.columns.3.y, t.columns.3.z)
+    }
+    
+    func updateTargetFromOdometry(_ result: OdometryTrackingResult) {
+        targetPose = result.world3DPoint
+    }
+    
+    func setTargetPose(_ worldPoint: SIMD3<Float>) {
+        targetPose = worldPoint
+    }
+    
+    func clearTargetPose() {
+        targetPose = nil
     }
     
     // MARK: - ML Integration Method
