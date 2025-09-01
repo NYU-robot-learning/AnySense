@@ -81,16 +81,18 @@ struct MLModelFile: FileDocument {
     var url: URL
     
     static var readableContentTypes: [UTType] { 
-        // Support both .mlmodel and .mlmodelc files
+        // Support .mlmodel, .mlmodelc, and .mlpackage files
         [
             UTType(filenameExtension: "mlmodel")!,
-            UTType(filenameExtension: "mlmodelc")!
+            UTType(filenameExtension: "mlmodelc")!,
+            UTType(filenameExtension: "mlpackage")!
         ]
     }
     static var writableContentTypes: [UTType] { 
         [
             UTType(filenameExtension: "mlmodel")!,
-            UTType(filenameExtension: "mlmodelc")!
+            UTType(filenameExtension: "mlmodelc")!,
+            UTType(filenameExtension: "mlpackage")!
         ]
     }
     
@@ -134,7 +136,7 @@ struct SubLevelDirectory: FileDocument{
             for content in contents{
                 if content.pathExtension.lowercased() == "jpeg" || content.pathExtension.lowercased() == "jpg" {
                     self.containedFiles.append(.imageFile(ImageFile(url: content)))
-                } else if content.pathExtension.lowercased() == "mlmodel" || content.pathExtension.lowercased() == "mlmodelc" {
+                } else if ["mlmodel","mlmodelc","mlpackage"].contains(content.pathExtension.lowercased()) {
                     self.containedFiles.append(.mlModelFile(MLModelFile(url: content)))
                 }
             }

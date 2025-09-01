@@ -199,4 +199,22 @@ class USBManager {
         // Return compressed depth data
         return Data(bytes: compressedBuffer, count: compressedSize)
     }
+    
+    // MARK: - Joint Actions sender
+    func sendJointActions(_ jointActionsData: Data) {
+        guard let activeConnection = activeConnection else {
+            print("No active connection. Cannot send joint actions.")
+            return
+        }
+        var header = PeerTalkHeader(a: 2, b: 1, c: 1, body_size: UInt32(jointActionsData.count).bigEndian)
+        let headerData = Data(bytes: &header, count: MemoryLayout<PeerTalkHeader>.size)
+        let message = headerData + jointActionsData
+        activeConnection.send(content: message, completion: .contentProcessed { error in
+            if let error = error {
+                print("❌ Failed to send joint actions: \(error)")
+            } else {
+                print("✅ Joint actions sent (\(jointActionsData.count) bytes)")
+            }
+        })
+    }
 }

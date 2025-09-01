@@ -60,22 +60,54 @@ struct ModelMetadata {
     let expectedOutputCount: Int?
     let outputFeatureNames: [String]
     let primaryOutputName: String?
+    private let allInputsByName: [String: MLFeatureDescription]
     
     init(from model: MLModel) throws {
         let modelDescription = model.modelDescription
         
-        // Get input description (assuming single input for now)
-        self.inputDescription = modelDescription.inputDescriptionsByName.values.first
+        // Cache all inputs (local first to avoid using self during init)
+        let inputsByName = modelDescription.inputDescriptionsByName
+        
+        // Get first input description (legacy use)
+        self.inputDescription = inputsByName.values.first
         
         // Get output description
         self.outputDescription = modelDescription.outputDescriptionsByName.values.first
         
         self.modelDescription = modelDescription.metadata[.description] as? String ?? "No description"
         
-        // Extract input shape if available - simplified approach
-        if self.inputDescription != nil {
-            // For now, set a default shape - can be enhanced later if needed
-            self.requiredInputShape = [224, 224, 3] // Common image input shape
+        // Extract input shape if available (try to infer from first image or 4D array)
+        func localFirstImageLikeInput(_ inputs: [String: MLFeatureDescription]) -> (String, MLFeatureDescription)? {
+            if let d = inputs["camera_image"] { return ("camera_image", d) }
+            for (key, desc) in inputs {
+                switch desc.type {
+                case .image: return (key, desc)
+                case .multiArray:
+                    if let shape = desc.multiArrayConstraint?.shape, shape.count >= 4 { return (key, desc) }
+                default: continue
+                }
+            }
+            return nil
+        }
+        if let (_, desc) = localFirstImageLikeInput(inputsByName) {
+            switch desc.type {
+            case .image:
+                if let c = desc.imageConstraint {
+                    self.requiredInputShape = [Int(c.pixelsHigh), Int(c.pixelsWide), 3]
+                } else {
+                    self.requiredInputShape = [224, 224, 3]
+                }
+            case .multiArray:
+                if let shape = desc.multiArrayConstraint?.shape, shape.count >= 4 {
+                    let h = shape[shape.count-2].intValue
+                    let w = shape[shape.count-1].intValue
+                    self.requiredInputShape = [h, w, 3]
+                } else {
+                    self.requiredInputShape = [224, 224, 3]
+                }
+            default:
+                self.requiredInputShape = [224, 224, 3]
+            }
         } else {
             self.requiredInputShape = nil
         }
@@ -87,7 +119,7 @@ struct ModelMetadata {
         self.outputFeatureNames = Array(modelDescription.outputDescriptionsByName.keys).sorted()
         self.primaryOutputName = self.outputFeatureNames.first
 
-        // Check compatibility inline - avoid calling self method before initialization complete
+        // Check compatibility inline - avoid calling helpers before initialization complete
         self.isCompatible = !modelDescription.inputDescriptionsByName.isEmpty && 
                            !modelDescription.outputDescriptionsByName.isEmpty &&
                            modelDescription.inputDescriptionsByName.values.contains { desc in
@@ -102,6 +134,92 @@ struct ModelMetadata {
                                default: return false
                                }
                            }
+        
+        // Now that init values are ready, set cached inputs map
+        self.allInputsByName = inputsByName
+    }
+    
+    // MARK: - Dynamic helpers used by MLInferenceManager
+    enum ModelType {
+        case pointConditioned
+        case standard
+        var displayName: String {
+            switch self {
+            case .pointConditioned: return "Point-Conditioned"
+            case .standard: return "Standard"
+            }
+        }
+    }
+    
+    var modelType: ModelType {
+        return requiresGoalPoint ? .pointConditioned : .standard
+    }
+    
+    var requiresGoalPoint: Bool {
+        // Heuristic: presence of a second non-image input named "goal_point" or a small (1x3) array input
+        if allInputsByName.keys.contains("goal_point") { return true }
+        for (name, desc) in allInputsByName {
+            if name == "camera_image" { continue }
+            switch desc.type {
+            case .multiArray:
+                if let shape = desc.multiArrayConstraint?.shape {
+                    // Accept 2D [1,3] or [3] or small shapes as goal vector
+                    let dims = shape.map { $0.intValue }
+                    if dims == [1,3] || dims == [3] || dims.suffix(1).first == 3 && dims.reduce(1,*) <= 16 {
+                        return true
+                    }
+                }
+            default: break
+            }
+        }
+        return false
+    }
+    
+    var imageInputSize: CGSize? {
+        guard let (_, desc) = firstImageLikeInput() else { return nil }
+        switch desc.type {
+        case .image:
+            if let c = desc.imageConstraint { return CGSize(width: Int(c.pixelsWide), height: Int(c.pixelsHigh)) }
+        case .multiArray:
+            if let shape = desc.multiArrayConstraint?.shape, shape.count >= 4 {
+                let h = shape[shape.count-2].intValue
+                let w = shape[shape.count-1].intValue
+                return CGSize(width: w, height: h)
+            }
+        default: break
+        }
+        return nil
+    }
+    
+    func getImageInputName() -> String? {
+        if allInputsByName.keys.contains("camera_image") { return "camera_image" }
+        if let (name, _) = firstImageLikeInput() { return name }
+        return nil
+    }
+    
+    func getGoalInputName() -> String? {
+        if allInputsByName.keys.contains("goal_point") { return "goal_point" }
+        for (name, desc) in allInputsByName where name != "camera_image" {
+            if desc.type == .multiArray, let shape = desc.multiArrayConstraint?.shape {
+                let dims = shape.map { $0.intValue }
+                if dims == [1,3] || dims == [3] || dims.reduce(1,*) <= 16 { return name }
+            }
+        }
+        return nil
+    }
+    
+    // Find the first image-like input (image or 4D array)
+    private func firstImageLikeInput() -> (String, MLFeatureDescription)? {
+        if let d = allInputsByName["camera_image"] { return ("camera_image", d) }
+        for (name, desc) in allInputsByName {
+            switch desc.type {
+            case .image: return (name, desc)
+            case .multiArray:
+                if let shape = desc.multiArrayConstraint?.shape, shape.count >= 4 { return (name, desc) }
+            default: continue
+            }
+        }
+        return nil
     }
 }
 

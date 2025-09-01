@@ -197,6 +197,23 @@ struct ReadView : View{
                             .buttonStyle(scaleButtonStyle(isRecording: $isReading))
                         }
                         .padding(.bottom, arViewPadding / 4.0 - (buttonSize / 4.0))
+                        
+                        // Goal tap button - only for point-conditioned models and when not streaming
+                        if appStatus.rgbdVideoStreaming == .off, (arViewModel.mlManager?.isPointConditioned ?? false) {
+                            Button(action: {
+                                // Toggle goal tap mode on ARViewModel
+                                arViewModel.goalTapModeEnabled.toggle()
+                            }) {
+                                Image(systemName: arViewModel.goalTapModeEnabled ? "dot.circle.fill" : "target")
+                                    .resizable()
+                                    .frame(height: 36)
+                                    .frame(width: 36)
+                                    .foregroundStyle(arViewModel.goalTapModeEnabled ? Color.green : Color.blue)
+                            }
+                            .padding(.leading, 12)
+                            .padding(.bottom, arViewPadding / 4.0 - (buttonSize / 4.0))
+                            .help("Tap to set goal in AR view")
+                        }
                         Spacer()
                     }
                 }

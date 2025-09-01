@@ -50,11 +50,34 @@ struct ARViewContainer: UIViewRepresentable {
         // Setup AR visualization with the created ARView
         arVisualizationManager.setupVisualization(with: arView)
         
+        // Add tap recognizer for goal setting (point-conditioned models)
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
+        arView.addGestureRecognizer(tap)
+        
         return arView
     }
     func updateUIView(_ uiView: ARView, context: Context) {
         if uiView.session !== session {
             uiView.session = session
+        }
+    }
+    
+    // MARK: - Coordinator for gesture handling
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+    
+    class Coordinator: NSObject {
+        let parent: ARViewContainer
+        init(_ parent: ARViewContainer) { self.parent = parent }
+        
+        @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
+            guard recognizer.state == .ended, let arView = recognizer.view as? ARView else { return }
+            let location = recognizer.location(in: arView)
+            // Convert UIKit tap to a lightweight UIView for ML manager API
+            let dummyView = UIView(frame: arView.bounds)
+            
+            // Access ML manager via a shared ARViewModel if available
+            // Here, we post a notification with tap info; the view model can subscribe and start odometry
+            NotificationCenter.default.post(name: NSNotification.Name("ARViewTapForGoal"), object: nil, userInfo: ["location": location, "bounds": arView.bounds])
         }
     }
 }
@@ -83,8 +106,8 @@ class ARViewModel: ObservableObject{
     
     // AR Visualization Manager for 3D pose visualization
     @Published var arVisualizationManager = ARVisualizationManager()
-    
-    
+    @Published var goalTapModeEnabled: Bool = false
+
 
     public var userFPS: Double?
     public var isColorMapOpened = false
@@ -110,7 +133,19 @@ class ARViewModel: ObservableObject{
     private var rgbOutputPixelBufferUSB: CVPixelBuffer?
     private var depthOutputPixelBufferUSB: CVPixelBuffer?
     private var depthConfidenceOutputPixelBufferUSB: CVPixelBuffer?
+    // MARK: - Exposed helpers for MLInferenceManager
+    func getARSession() -> ARSession {
+        return session
+    }
     
+    func sendJointActionsUSB(_ jointActions: [Float]) {
+        var actions = Array(jointActions.prefix(7))
+        if actions.count < 7 {
+            actions.append(contentsOf: Array(repeating: 0.0, count: 7 - actions.count))
+        }
+        let data = actions.withUnsafeBytes { Data($0) }
+        usbManager.sendJointActions(data)
+    }
     private var poseFileHandle: FileHandle?
     
     // Control the destination of rgb images directory and depth images directory
@@ -167,6 +202,42 @@ class ARViewModel: ObservableObject{
         
         self.ciContext = CIContext()
         updateDemoCounter()
+        
+        // Listen for goal-tap notifications and start odometry + set goal point
+        NotificationCenter.default.addObserver(forName: NSNotification.Name("ARViewTapForGoal"), object: nil, queue: .main) { [weak self] notif in
+            guard let self = self, let ml = self.mlManager else { return }
+            // Only handle taps when using a point-conditioned policy and the user enabled goal-tap mode
+            guard ml.isPointConditioned, self.goalTapModeEnabled else { return }
+            guard let location = notif.userInfo?["location"] as? CGPoint,
+                  let bounds = notif.userInfo?["bounds"] as? CGRect else { return }
+            let dummyView = UIView(frame: bounds)
+            if let frame = self.session.currentFrame {
+                let depth = self.depthStatus.isDepthAvailable ? (frame.sceneDepth?.depthMap) : nil
+                _ = ml.startOdometryTrackingWithScreenPoint(screenPoint: location, in: dummyView, arFrame: frame, depthMap: depth)
+                if let world = ml.convertScreenToWorld(location, in: dummyView, arSession: self.session, depthMap: depth) ?? self.raycastWithEstimatedDepth(at: location, in: dummyView, frame: frame, estimatedDepth: 2.5) {
+                    ml.setGoalPoint(world)
+                    self.arVisualizationManager.setTargetPose(world)
+                    // Exit goal-tap mode after a successful set
+                    self.goalTapModeEnabled = false
+                }
+            }
+        }
+    }
+
+    // Fallback conversion using a constant estimated depth when depth map is unavailable
+    private func raycastWithEstimatedDepth(at screenPoint: CGPoint, in view: UIView, frame: ARFrame, estimatedDepth: Float) -> simd_float3? {
+        let cameraIntrinsics = frame.camera.intrinsics
+        let cameraTransform = frame.camera.transform
+        let fx = cameraIntrinsics.columns.0.x
+        let fy = cameraIntrinsics.columns.1.y
+        let cx = cameraIntrinsics.columns.2.x
+        let cy = cameraIntrinsics.columns.2.y
+        let cameraX = (Float(screenPoint.x) - cx) / fx * estimatedDepth
+        let cameraY = (Float(screenPoint.y) - cy) / fy * estimatedDepth
+        let cameraZ = estimatedDepth
+        let cameraPoint = simd_float4(cameraX, cameraY, cameraZ, 1.0)
+        let worldPoint = simd_mul(cameraTransform, cameraPoint)
+        return simd_float3(worldPoint.x, worldPoint.y, worldPoint.z)
     }
     
     
@@ -431,8 +502,8 @@ class ARViewModel: ObservableObject{
         
         let rgbPixelBuffer = currentFrame.capturedImage
 
-        // Perform ML inference on the RGB frame during streaming
-        mlManager?.performInference(on: rgbPixelBuffer, timestamp: CACurrentMediaTime())
+        // Perform ML inference on the RGB frame during streaming (provide ARFrame for odometry/goal updates)
+        mlManager?.performInference(on: rgbPixelBuffer, arFrame: currentFrame, timestamp: CACurrentMediaTime())
         
         
 
@@ -910,8 +981,8 @@ class ARViewModel: ObservableObject{
             depthPixelBuffer = depthBuffer
         }
         
-        // Perform ML inference on the RGB frame
-        mlManager?.performInference(on: rgbPixelBuffer, timestamp: CACurrentMediaTime())
+        // Perform ML inference on the RGB frame (provide ARFrame for odometry/goal updates)
+        mlManager?.performInference(on: rgbPixelBuffer, arFrame: currentFrame, timestamp: CACurrentMediaTime())
         
         
         
@@ -959,6 +1030,8 @@ class ARViewModel: ObservableObject{
         
         // Connect AR visualization to ML inference
         self.mlManager?.arVisualizationManager = self.arVisualizationManager
+        // Provide AR session access to ML manager for goal and odometry
+        self.mlManager?.setARViewContainer(self)
         
         // ML results are now accessed directly during streaming for better real-time performance
         

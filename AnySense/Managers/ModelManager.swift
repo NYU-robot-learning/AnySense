@@ -58,11 +58,38 @@ class ModelManager: ObservableObject {
                 availableModels = modelRegistry.models
                 activeModel = modelRegistry.activeModel
                 print("Loaded model registry with \(modelRegistry.models.count) models")
+                // Validate entries and fix stale active model pointing to removed files
+                validateAndFixRegistry()
             }
         } catch {
             print("Failed to load model registry: \(error)")
             modelRegistry = ModelRegistry()
         }
+    }
+
+    // Remove models whose files no longer exist and fix an invalid active model
+    private func validateAndFixRegistry() {
+        // Prune missing files
+        let original = availableModels
+        availableModels = availableModels.filter { getModelURL(for: $0) != nil }
+        if availableModels.count != original.count {
+            print("Registry cleanup: removed \(original.count - availableModels.count) missing model entries")
+        }
+        // Fix active model if missing
+        if let active = activeModel, getModelURL(for: active) == nil {
+            print("Active model missing on disk: \(active.name). Selecting a valid model...")
+            activeModel = nil
+        }
+        if activeModel == nil {
+            if let next = availableModels.first, getModelURL(for: next) != nil {
+                // Directly set without dispatching to avoid race during init
+                for i in availableModels.indices { availableModels[i].isActive = availableModels[i].id == next.id }
+                activeModel = next
+                modelRegistry.setActiveModel(id: next.id)
+                print("Switched active model to: \(next.name)")
+            }
+        }
+        saveModelRegistry()
     }
     
     private func saveModelRegistry() {
@@ -80,28 +107,34 @@ class ModelManager: ObservableObject {
     
     // MARK: - Bundled Model Setup
     private func setupBundledModel() {
-        // Check if bundled model already exists in registry
-        let bundledModelName = "GeneralPickUpV1"
-        
-        if !availableModels.contains(where: { $0.source == .bundled && $0.name == bundledModelName }) {
-            let bundledModel = ModelInfo(
-                name: bundledModelName,
-                fileName: "\(bundledModelName).mlmodel",
+        // Register both standard and point-conditioned bundled models if present
+        let bundledNames = ["GeneralPickUpV1", "general-pick-up-goal-3-5k-demos"]
+        var added: [ModelInfo] = []
+        for name in bundledNames {
+            let alreadyExists = availableModels.contains { $0.source == .bundled && $0.name == name }
+            guard !alreadyExists else { continue }
+            // Only add if the resource actually exists in the bundle with any supported extension
+            let presentInBundle =
+                Bundle.main.url(forResource: name, withExtension: "mlmodelc") != nil ||
+                Bundle.main.url(forResource: name, withExtension: "mlpackage") != nil ||
+                Bundle.main.url(forResource: name, withExtension: "mlmodel") != nil
+            guard presentInBundle else { continue }
+            var info = ModelInfo(
+                name: name,
+                fileName: "\(name).mlmodel",
                 source: .bundled
             )
-            
-            var updatedModel = bundledModel
-            updatedModel.compilationStatus = .compiled
-            
-            availableModels.append(updatedModel)
-            
-            // Set as active if no active model
-            if activeModel == nil {
-                setActiveModel(id: updatedModel.id)
-            }
-            
-            saveModelRegistry()
+            info.compilationStatus = .compiled
+            availableModels.append(info)
+            added.append(info)
         }
+        // Set a default active model if none is active yet
+        if activeModel == nil {
+            if let preferred = availableModels.first(where: { $0.source == .bundled && $0.name == "GeneralPickUpV1" }) ?? added.first {
+                setActiveModel(id: preferred.id)
+            }
+        }
+        if !added.isEmpty { saveModelRegistry() }
     }
     
     // MARK: - Model Upload and Compilation
@@ -289,33 +322,29 @@ class ModelManager: ObservableObject {
         switch modelInfo.source {
         case .bundled:
             // Try to get from bundle first
-            if let bundleURL = Bundle.main.url(forResource: modelInfo.name, withExtension: "mlmodel") ??
-                               Bundle.main.url(forResource: modelInfo.name, withExtension: "mlmodelc") {
-                return bundleURL
+            if let url = Bundle.main.url(forResource: modelInfo.name, withExtension: "mlmodelc") ??
+                       Bundle.main.url(forResource: modelInfo.name, withExtension: "mlpackage") ??
+                       Bundle.main.url(forResource: modelInfo.name, withExtension: "mlmodel") {
+                return url
             }
             return nil
             
         case .uploaded:
-            // Check for compiled version first (stored in uploaded directory with .mlmodelc extension)
-            if modelInfo.compilationStatus.isCompiled {
-                let compiledURL = ModelFileUtilities.uploadedModelsDirectory
-                    .appendingPathComponent("\(modelInfo.name).mlmodel")
-                    .deletingPathExtension()
-                    .appendingPathExtension("mlmodelc")
-                
-                if FileManager.default.fileExists(atPath: compiledURL.path) {
-                    return compiledURL
-                }
-            }
-            
-            // Fall back to uncompiled model
+            // Prefer compiled .mlmodelc if present
+            let compiledURL = ModelFileUtilities.uploadedModelsDirectory
+                .appendingPathComponent("\(modelInfo.name).mlmodelc")
+            if FileManager.default.fileExists(atPath: compiledURL.path) { return compiledURL }
+
+            // Support .mlpackage in uploaded directory
+            let packageURL = ModelFileUtilities.uploadedModelsDirectory
+                .appendingPathComponent("\(modelInfo.name).mlpackage")
+            if FileManager.default.fileExists(atPath: packageURL.path) { return packageURL }
+
+            // Fallback to .mlmodel
             let uploadedURL = ModelFileUtilities.uploadedModelsDirectory
                 .appendingPathComponent("\(modelInfo.name).mlmodel")
-            
-            if FileManager.default.fileExists(atPath: uploadedURL.path) {
-                return uploadedURL
-            }
-            
+            if FileManager.default.fileExists(atPath: uploadedURL.path) { return uploadedURL }
+
             return nil
         }
     }

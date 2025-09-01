@@ -83,6 +83,10 @@ class MLInferenceManager: ObservableObject {
         }
     }
     
+    // MARK: - Transform/Debug Settings
+    var rotationUnit: ActionTransformUtils.RotationUnit = .eulerXYZ
+    var enableTransformDebug: Bool = true
+    
     // Initialization
     init(modelManager: ModelManager) {
         self.modelManager = modelManager
@@ -468,14 +472,61 @@ class MLInferenceManager: ObservableObject {
         let imageInputName = metadata.getImageInputName() ?? "camera_image"
         let goalInputName = metadata.getGoalInputName() ?? "goal_point"
         
-        // Process image
-        let imageArray = try processFrameForVQBeT(pixelBuffer, inputSize: metadata.imageInputSize ?? CGSize(width: 256, height: 256))
+        // Determine expected image input rank from the actual model description (fallback to 4)
+        let expectedImageRank: Int = {
+            if let d = model?.modelDescription.inputDescriptionsByName[imageInputName],
+               d.type == .multiArray,
+               let shape = d.multiArrayConstraint?.shape {
+                return shape.count
+            }
+            return 4
+        }()
         
-        // Prepare goal point array with batch dimension [1, count]
-        let goalArray = try MLMultiArray(shape: [1, NSNumber(value: goalPointArray.count)], dataType: .float32)
-        for (index, value) in goalPointArray.enumerated() {
-            goalArray[[0, index] as [NSNumber]] = NSNumber(value: value)
-        }
+        // Process image to match expected rank (support 4D [1,3,H,W] and 5D [1,1,3,H,W])
+        let imageArray = try processFrameForVQBeT(
+            pixelBuffer,
+            inputSize: metadata.imageInputSize ?? CGSize(width: 256, height: 256),
+            expectedRank: expectedImageRank
+        )
+        
+        // Prepare goal array to match model's expected shape when available
+        let goalArray: MLMultiArray = {
+            if let d = model?.modelDescription.inputDescriptionsByName[goalInputName],
+               d.type == .multiArray,
+               let shape = d.multiArrayConstraint?.shape {
+                let dims = shape.map { $0.intValue }
+                if dims.count == 3, let last = dims.last, last == 3 {
+                    // Shape [1,1,3]
+                    let arr = try? MLMultiArray(shape: shape, dataType: .float32)
+                    if let arr = arr {
+                        for i in 0..<3 { arr[[0, 0, i] as [NSNumber]] = NSNumber(value: goalPointArray[i]) }
+                        return arr
+                    }
+                } else if dims.count == 2, dims == [1,3] {
+                    let arr = try? MLMultiArray(shape: shape, dataType: .float32)
+                    if let arr = arr {
+                        for i in 0..<3 { arr[[0, i] as [NSNumber]] = NSNumber(value: goalPointArray[i]) }
+                        return arr
+                    }
+                } else if dims.count == 1, dims.first == 3 {
+                    let arr = try? MLMultiArray(shape: shape, dataType: .float32)
+                    if let arr = arr {
+                        for i in 0..<3 { arr[[i] as [NSNumber]] = NSNumber(value: goalPointArray[i]) }
+                        return arr
+                    }
+                }
+            }
+            // Fallback: [1,3]
+            let arr = try? MLMultiArray(shape: [1, 3], dataType: .float32)
+            if let arr = arr {
+                for i in 0..<3 { arr[[0, i] as [NSNumber]] = NSNumber(value: goalPointArray[i]) }
+                return arr
+            }
+            // As last resort, create [3]
+            let arr3 = try! MLMultiArray(shape: [3], dataType: .float32)
+            for i in 0..<3 { arr3[[i] as [NSNumber]] = NSNumber(value: goalPointArray[i]) }
+            return arr3
+        }()
         
         return try MLDictionaryFeatureProvider(dictionary: [
             imageInputName: MLFeatureValue(multiArray: imageArray),
@@ -486,11 +537,13 @@ class MLInferenceManager: ObservableObject {
     private func prepareLegacyInput(_ pixelBuffer: CVPixelBuffer, metadata: ModelMetadata) throws -> MLFeatureProvider {
         // Simple approach matching old working code - no coordinate transformations
         let inputArray = try processFrameForInference(pixelBuffer)
-        return try MLDictionaryFeatureProvider(dictionary: ["x_1": inputArray])
+        // Prefer metadata-driven input name if available
+        let inputName = metadata.getImageInputName() ?? "x_1"
+        return try MLDictionaryFeatureProvider(dictionary: [inputName: MLFeatureValue(multiArray: inputArray)])
     }
     
     // MARK: - VQ-BeT Frame Processing
-    private func processFrameForVQBeT(_ pixelBuffer: CVPixelBuffer, inputSize: CGSize) throws -> MLMultiArray {
+    private func processFrameForVQBeT(_ pixelBuffer: CVPixelBuffer, inputSize: CGSize, expectedRank: Int) throws -> MLMultiArray {
         let width = Int(inputSize.width)
         let height = Int(inputSize.height)
         
@@ -533,12 +586,20 @@ class MLInferenceManager: ObservableObject {
         
         ciContext.render(scaledImage, to: outputBuffer, bounds: cropRect, colorSpace: CGColorSpaceCreateDeviceRGB())
         
-        // Convert to MLMultiArray for VQ-BeT format [1, 3, height, width]
-        return try convertPixelBufferToVQBeTArray(outputBuffer, width: width, height: height)
+        // Convert to MLMultiArray for VQ-BeT format
+        // Support 4D [1,3,H,W] and 5D [1,1,3,H,W]
+        return try convertPixelBufferToVQBeTArray(outputBuffer, width: width, height: height, expectedRank: expectedRank)
     }
     
-    private func convertPixelBufferToVQBeTArray(_ pixelBuffer: CVPixelBuffer, width: Int, height: Int) throws -> MLMultiArray {
-        let inputArray = try MLMultiArray(shape: [1, 3, NSNumber(value: height), NSNumber(value: width)], dataType: .float32)
+    private func convertPixelBufferToVQBeTArray(_ pixelBuffer: CVPixelBuffer, width: Int, height: Int, expectedRank: Int) throws -> MLMultiArray {
+        let shape: [NSNumber]
+        let fiveD = (expectedRank >= 5)
+        if fiveD {
+            shape = [1, 1, 3, NSNumber(value: height), NSNumber(value: width)]
+        } else {
+            shape = [1, 3, NSNumber(value: height), NSNumber(value: width)]
+        }
+        let inputArray = try MLMultiArray(shape: shape, dataType: .float32)
         
         guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else {
             throw NSError(domain: "MLInferenceManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to get pixel buffer base address"])
@@ -556,10 +617,13 @@ class MLInferenceManager: ObservableObject {
                 let g = Float(buffer[offset + 2]) / 255.0
                 let b = Float(buffer[offset + 3]) / 255.0
                 
-                // VQ-BeT format: [batch, channel, height, width]
-                let rIndex = [NSNumber(value: 0), NSNumber(value: 0), NSNumber(value: y), NSNumber(value: x)]
-                let gIndex = [NSNumber(value: 0), NSNumber(value: 1), NSNumber(value: y), NSNumber(value: x)]
-                let bIndex = [NSNumber(value: 0), NSNumber(value: 2), NSNumber(value: y), NSNumber(value: x)]
+                // VQ-BeT format: either [B, C, H, W] or [B, T, C, H, W] with T=1
+                let rIndex = fiveD ? [NSNumber(value: 0), NSNumber(value: 0), NSNumber(value: 0), NSNumber(value: y), NSNumber(value: x)]
+                                   : [NSNumber(value: 0), NSNumber(value: 0), NSNumber(value: y), NSNumber(value: x)]
+                let gIndex = fiveD ? [NSNumber(value: 0), NSNumber(value: 0), NSNumber(value: 1), NSNumber(value: y), NSNumber(value: x)]
+                                   : [NSNumber(value: 0), NSNumber(value: 1), NSNumber(value: y), NSNumber(value: x)]
+                let bIndex = fiveD ? [NSNumber(value: 0), NSNumber(value: 0), NSNumber(value: 2), NSNumber(value: y), NSNumber(value: x)]
+                                   : [NSNumber(value: 0), NSNumber(value: 2), NSNumber(value: y), NSNumber(value: x)]
                 
                 inputArray[rIndex] = NSNumber(value: r)
                 inputArray[gIndex] = NSNumber(value: g)
@@ -621,6 +685,7 @@ class MLInferenceManager: ObservableObject {
     
     // MARK: - Simplified Pixel Buffer to MLMultiArray Conversion
     private func convertProcessedPixelBufferToMLMultiArray(_ pixelBuffer: CVPixelBuffer) throws -> MLMultiArray {
+        // Explicitly index as [B=1, T=1, C=3, H=256, W=256]
         let inputArray = try MLMultiArray(shape: [1, 1, 3, 256, 256], dataType: .float32)
         
         guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else {
@@ -635,17 +700,12 @@ class MLInferenceManager: ObservableObject {
         for y in 0..<256 {
             for x in 0..<256 {
                 let offset = y * bytesPerRow + x * bytesPerPixel
-                
-                // ARGB format
                 let r = Float(buffer[offset + 1]) / 255.0
-                let g = Float(buffer[offset + 2]) / 255.0  
+                let g = Float(buffer[offset + 2]) / 255.0
                 let b = Float(buffer[offset + 3]) / 255.0
-                
-                // Store in MLMultiArray format: [batch, channel, rgb, height, width]
-                let baseIndex = y * 256 + x
-                inputArray[baseIndex] = NSNumber(value: r) // R channel
-                inputArray[baseIndex + 256 * 256] = NSNumber(value: g) // G channel  
-                inputArray[baseIndex + 256 * 256 * 2] = NSNumber(value: b) // B channel
+                inputArray[[0, 0, 0, NSNumber(value: y), NSNumber(value: x)]] = NSNumber(value: r)
+                inputArray[[0, 0, 1, NSNumber(value: y), NSNumber(value: x)]] = NSNumber(value: g)
+                inputArray[[0, 0, 2, NSNumber(value: y), NSNumber(value: x)]] = NSNumber(value: b)
             }
         }
         
@@ -661,8 +721,8 @@ class MLInferenceManager: ObservableObject {
         
         // Simple approach for non-point conditioned models - match old working code
         if metadata.modelType == .standard {
-            // Use first available output (matching old code simplicity)
-            let outputFeatureName = output.featureNames.first
+            // Prefer primary output name when available
+            let outputFeatureName = metadata.primaryOutputName ?? output.featureNames.first
             
             guard let outputFeatureName = outputFeatureName,
                   let resultArray = output.featureValue(for: outputFeatureName)?.multiArrayValue else {
@@ -683,15 +743,20 @@ class MLInferenceManager: ObservableObject {
             DispatchQueue.main.async { [weak self] in
                 self?.latestResult = result
                 
-                // Feed pose data to AR visualization with synchronized timestamp
+                // Ensure visualization is ready and feed pose
                 if let arManager = self?.arVisualizationManager, jointPositions.count >= 6 {
+                    arManager.prepareVisualizationIfNeeded()
                     arManager.updatePoseFromMLOutput(jointPositions, timestamp: self?.lastInferenceTime ?? CACurrentMediaTime())
                 }
                 
                 // Send joint actions to USB if streaming is enabled (transform to robot frame)
                 if jointPositions.count >= 7 {
                     let src = Array(jointPositions.prefix(7))
-                    let robot = ActionTransformUtils.toRobotActions(src)
+                    if self?.enableTransformDebug == true {
+                        let report = ActionTransformUtils.debugTransformReport(src, rotationUnit: self?.rotationUnit ?? .eulerXYZ)
+                        print(report)
+                    }
+                    let robot = ActionTransformUtils.toRobotActions(src, rotationUnit: self?.rotationUnit ?? .eulerXYZ)
                     print("USB send (robot actions): \(robot.map { String(format: "%.3f", $0) }.joined(separator: ", "))")
                     self?.sendJointActionsToUSB(robot)
                 }
@@ -725,8 +790,9 @@ class MLInferenceManager: ObservableObject {
             DispatchQueue.main.async { [weak self] in
                 self?.latestResult = result
                 
-                // Feed pose data to AR visualization with synchronized timestamp
+                // Ensure visualization is ready and feed pose
                 if let arManager = self?.arVisualizationManager, jointPositions.count >= 6 {
+                    arManager.prepareVisualizationIfNeeded()
                     arManager.updatePoseFromMLOutput(jointPositions, timestamp: self?.lastInferenceTime ?? CACurrentMediaTime())
                 }
                 
@@ -756,6 +822,9 @@ class MLInferenceManager: ObservableObject {
         isInferenceEnabled = true
         let modelName = modelManager.activeModel?.name ?? "No model"
         print("Pick Up Policy enabled with model: \(modelName)")
+        if enableTransformDebug {
+            print("Transform debug is ENABLED (rotationUnit=\(rotationUnit))")
+        }
     }
     
     func disableInference() {

@@ -468,7 +468,12 @@ struct ModelImporter: UIViewControllerRepresentable {
     let onPickDocument: (Result<URL, Error>) -> Void
     
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [UTType(filenameExtension: "mlmodel")!])
+        let allowedTypes = [
+            UTType(filenameExtension: "mlmodel")!,
+            UTType(filenameExtension: "mlmodelc")!,
+            UTType(filenameExtension: "mlpackage")!
+        ]
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: allowedTypes)
         picker.delegate = context.coordinator
         picker.allowsMultipleSelection = false
         return picker

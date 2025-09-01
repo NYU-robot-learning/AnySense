@@ -71,6 +71,10 @@ class ARVisualizationManager: ObservableObject {
     // Arrow lifecycle
     private let arrowLifetime: TimeInterval = 3.0  // Arrows fade after 3 seconds
     
+    // Debug controls
+    var debugLoggingEnabled: Bool = true
+    var debugAlwaysDrawArrow: Bool = false
+    
     // MARK: - Initialization 
     init() {
         print("ARVisualizationManager initialized with delta-based movement arrows")
@@ -86,7 +90,7 @@ class ARVisualizationManager: ObservableObject {
     func startRecordingVisualization() {
         print("startRecordingVisualization called")
         
-        guard let arView = arView else { 
+        guard arView != nil else { 
             print("ARView not available for visualization")
             return 
         }
@@ -116,7 +120,7 @@ class ARVisualizationManager: ObservableObject {
     }
     
     private func establishWorldOrigin() {
-        guard let arView = arView else { return }
+        guard let currentArView = arView else { return }
         guard !hasEstablishedOrigin else {
             print("World origin already established")
             return
@@ -127,9 +131,15 @@ class ARVisualizationManager: ObservableObject {
         currentWorldPosition = SIMD3<Float>(0, 0, 0) // Start at origin
         previousWorldPosition = nil
         hasEstablishedOrigin = true
+
+        // Create an anchor at the chosen world origin to host visualization entities
+        var t = matrix_identity_float4x4
+        t.columns.3 = SIMD4<Float>(worldOrigin.x, worldOrigin.y, worldOrigin.z, 1)
+        let anchor = AnchorEntity(world: t)
+        currentArView.scene.addAnchor(anchor)
+        worldOriginAnchor = anchor
         
-        // No anchor creation needed for visualization
-        print("🌍 World origin set (no anchor created) at: \(worldOrigin)")
+        print("🌍 World origin set at: \(worldOrigin) and anchor created")
     }
     
     private func resetMovementTracking() {
@@ -160,6 +170,15 @@ class ARVisualizationManager: ObservableObject {
             arrow.anchor.removeFromParent()
         }
         movementArrows.removeAll()
+    }
+
+    // MARK: - Public helper to auto-prepare visualization
+    func prepareVisualizationIfNeeded() {
+        if !hasEstablishedOrigin { establishWorldOrigin() }
+        if !isVisualizationEnabled { enableVisualization() }
+        if debugLoggingEnabled {
+            print("[Viz] prepareVisualizationIfNeeded → enabled=\(isVisualizationEnabled), origin=\(hasEstablishedOrigin)")
+        }
     }
     
     func toggleMovementArrows() {
@@ -210,6 +229,9 @@ class ARVisualizationManager: ObservableObject {
     func updatePoseFromMLOutput(_ jointActions: [Float], timestamp: CFTimeInterval = CACurrentMediaTime()) {
         // Apply frequency throttling
         if timestamp - lastVisualizationTime < visualizationFrequency.interval {
+            if debugLoggingEnabled {
+                print("[Viz] throttled (\(timestamp - lastVisualizationTime)s < \(visualizationFrequency.interval)s)")
+            }
             return
         }
         
@@ -225,8 +247,17 @@ class ARVisualizationManager: ObservableObject {
             return
         }
         
-        // Interpret joint actions as movement deltas in ARKit coordinates
-        let (deltaTranslation, _, confidence) = interpretMLDirections(jointActions)
+        // Interpret joint actions as movement deltas in CAMERA coordinates, then rotate into world frame
+        let (cameraDeltaTranslation, _, confidence) = interpretMLDirections(jointActions)
+        let cameraTransform = getCurrentCameraTransform()
+        let rotationWorldFromCamera = simd_float3x3(
+            columns: (
+                SIMD3<Float>(cameraTransform.columns.0.x, cameraTransform.columns.0.y, cameraTransform.columns.0.z),
+                SIMD3<Float>(cameraTransform.columns.1.x, cameraTransform.columns.1.y, cameraTransform.columns.1.z),
+                SIMD3<Float>(cameraTransform.columns.2.x, cameraTransform.columns.2.y, cameraTransform.columns.2.z)
+            )
+        )
+        let deltaTranslation = rotationWorldFromCamera * cameraDeltaTranslation
         
         print("📱 ML input (x=down,y=right,z=back): (\(String(format: "%.3f", jointActions[0])), \(String(format: "%.3f", jointActions[1])), \(String(format: "%.3f", jointActions[2])))")
         print("📲 Delta movement (x=right,y=up,z=forward): (\(String(format: "%.3f", deltaTranslation.x)), \(String(format: "%.3f", deltaTranslation.y)), \(String(format: "%.3f", deltaTranslation.z)))")
@@ -238,7 +269,10 @@ class ARVisualizationManager: ObservableObject {
         
         // Only create movement arrow if there's meaningful movement and we have a previous position
         let movementMagnitude = length(deltaTranslation)
-        if movementMagnitude > 0.005 { // 5mm threshold for meaningful movement
+        if debugLoggingEnabled {
+            print("[Viz] camera delta=\(cameraDeltaTranslation), world delta=\(deltaTranslation), mag=\(movementMagnitude)")
+        }
+        if movementMagnitude > 0.005 || debugAlwaysDrawArrow { // draw even if tiny in debug
             createMovementArrow(
                 from: previousPosition,
                 to: currentWorldPosition,
@@ -251,45 +285,38 @@ class ARVisualizationManager: ObservableObject {
     }
     
     private func interpretMLDirections(_ jointActions: [Float]) -> (translation: SIMD3<Float>, rotation: simd_quatf, confidence: Float) {
+        // Use unified policy→camera mapping for consistency with robot path
+        let action7 = Array(jointActions.prefix(7))
+        let quarterTurns: Int
+        // Map device interface orientation to quarter turns around camera Z
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+            switch windowScene.interfaceOrientation {
+            case .landscapeLeft:
+                quarterTurns = 1
+            case .landscapeRight:
+                quarterTurns = -1
+            case .portraitUpsideDown:
+                quarterTurns = 2
+            default:
+                quarterTurns = 0
+            }
+        } else {
+            quarterTurns = 0
+        }
+        let mapped = ActionTransformUtils.policyToCameraEulerAction(action7, rotationUnit: .eulerXYZ, quarterTurns: quarterTurns)
+        let translation = SIMD3<Float>(mapped[0], mapped[1], mapped[2])
+        let rotation = eulerToQuaternion(roll: mapped[3], pitch: mapped[4], yaw: mapped[5])
         
-        // Interpret as directional vectors (not absolute positions)
-        // Transform from ML coordinate system to ARKit camera-relative coordinates
-        let ml_x = jointActions[0]  // down
-        let ml_y = jointActions[1]  // right  
-        let ml_z = jointActions[2]  // backward (into phone)
-        let ml_roll = jointActions[3]
-        let ml_pitch = jointActions[4]
-        let ml_yaw = jointActions[5]
-        
-        // COORDINATE SYSTEM TRANSFORMATION:
-        // Phone ML: x=down, y=right, z=backward → ARKit: x=right, y=up, z=forward
-        // 
-        // ML x (down)     → ARKit y (up)      → negate: -ml_x
-        // ML y (right)    → ARKit x (right)   → direct: ml_y  
-        // ML z (backward) → ARKit z (forward) → negate: -ml_z
-        let translation = SIMD3<Float>(
-            ml_y,          // ML y (right) → ARKit x (right)
-            -ml_x,         // ML x (down) → ARKit y (up), so -x
-            ml_z          // ML z (backward) → ARKit z (forward), so -z
-        )
-        
-        // Transform rotation
-        let rotation = eulerToQuaternion(
-            roll: ml_pitch,    // Transform coordinate system
-            pitch: -ml_roll,
-            yaw: ml_yaw
-        )
-        
-        // Calculate confidence based on magnitude
+        // Confidence heuristic: translation magnitude plus rotation magnitude
         let translationMagnitude = length(translation)
-        let rotationMagnitude = sqrt(ml_roll * ml_roll + ml_pitch * ml_pitch + ml_yaw * ml_yaw)
-        let confidence = min(1.0, (translationMagnitude * 10 + rotationMagnitude) / 2.0) // Scale for reasonable confidence
+        let rotationMagnitude = sqrt(mapped[3] * mapped[3] + mapped[4] * mapped[4] + mapped[5] * mapped[5])
+        let confidence = min(1.0, (translationMagnitude * 10 + rotationMagnitude) / 2.0)
         
         return (translation, rotation, confidence)
     }
     
     private func createMovementArrow(from: SIMD3<Float>, to: SIMD3<Float>, confidence: Float, timestamp: TimeInterval) {
-        guard let arView = arView, let worldOriginAnchor = worldOriginAnchor else { return }
+        guard let worldOriginAnchor = worldOriginAnchor else { return }
         
         DispatchQueue.main.async { [weak self, worldOriginAnchor] in
             guard let self = self else { return }
