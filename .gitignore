@@ -68,3 +68,5 @@ fastlane/test_output
 
 # Models
 Models/
+AnySense.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+AnySense.xcworkspace/xcshareddata/swiftpm/
