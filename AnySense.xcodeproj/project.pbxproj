@@ -76,11 +76,6 @@
 		BA11D17F77459219187F7A30 /* Pods-AnySense.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-AnySense.release.xcconfig"; path = "Target Support Files/Pods-AnySense/Pods-AnySense.release.xcconfig"; sourceTree = "<group>"; };
 		E98E38A27D08BC9D5BE3E2E6 /* Pods-AnySense.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-AnySense.debug.xcconfig"; path = "Target Support Files/Pods-AnySense/Pods-AnySense.debug.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
-
-/* Begin PBXFileSystemSynchronizedRootGroup section */
-		01981E6C2DEA655900773CE6 /* Models */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Models; sourceTree = "<group>"; };
-/* End PBXFileSystemSynchronizedRootGroup section */
-
 /* Begin PBXFrameworksBuildPhase section */
 		B9104F572BFDE63A000D4DDD /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
@@ -128,7 +123,6 @@
 		B9104F5C2BFDE63A000D4DDD /* AnySense */ = {
 			isa = PBXGroup;
 			children = (
-				01981E6C2DEA655900773CE6 /* Models */,
 				01F5B7C92DEA6A1000061B16 /* ModelInfo.swift */,
 				01F5B7CB2DEA6A2000061B16 /* MLModel+Extensions.swift */,
 				B9944A332CFE982E00232FBB /* MainPage.swift */,
@@ -194,9 +188,6 @@
 			buildRules = (
 			);
 			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				01981E6C2DEA655900773CE6 /* Models */,
 			);
 			name = AnySense;
 			productName = USBInterfaceApp;
