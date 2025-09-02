@@ -468,11 +468,18 @@ struct ModelImporter: UIViewControllerRepresentable {
     let onPickDocument: (Result<URL, Error>) -> Void
     
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let allowedTypes = [
-            UTType(filenameExtension: "mlmodel")!,
-            UTType(filenameExtension: "mlmodelc")!,
-            UTType(filenameExtension: "mlpackage")!
-        ]
+        // Prefer system-declared UTIs; fall back to filename extensions for safety
+        let mlmodel = UTType(importedAs: "com.apple.coreml.model")
+        let mlpackage = UTType(importedAs: "com.apple.coreml.modelpackage")
+        // Compiled model UTI name varies by SDK; use a broad fallback as well
+        let mlmodelc = UTType(importedAs: "com.apple.coreml.compiled-model")
+        
+        var allowedTypes: [UTType] = [mlmodel, mlpackage, mlmodelc, .package, .data, .item]
+        // Add filename-extension fallbacks to catch older devices
+        if let byExt1 = UTType(filenameExtension: "mlmodel") { allowedTypes.append(byExt1) }
+        if let byExt2 = UTType(filenameExtension: "mlmodelc") { allowedTypes.append(byExt2) }
+        if let byExt3 = UTType(filenameExtension: "mlpackage") { allowedTypes.append(byExt3) }
+        
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: allowedTypes)
         picker.delegate = context.coordinator
         picker.allowsMultipleSelection = false

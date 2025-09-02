@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import ImageIO
 import CoreML
 import Vision
 import CoreVideo
@@ -86,6 +87,8 @@ class MLInferenceManager: ObservableObject {
     // MARK: - Transform/Debug Settings
     var rotationUnit: ActionTransformUtils.RotationUnit = .eulerXYZ
     var enableTransformDebug: Bool = true
+    // Apply server-style image orientation (Record3D publisher does rotations/mirrors)
+    var applyServerImageOrientation: Bool = true
     
     // Initialization
     init(modelManager: ModelManager) {
@@ -581,7 +584,11 @@ class MLInferenceManager: ObservableObject {
         let scaleY = inputSize.height / inputImageSize.height
         let scaleTransform = CGAffineTransform(scaleX: scaleX, y: scaleY)
         
-        let scaledImage = inputImage.transformed(by: scaleTransform)
+        var scaledImage = inputImage.transformed(by: scaleTransform)
+        if applyServerImageOrientation {
+            // Server path rotates images by 180° overall; replicate using EXIF .down
+            scaledImage = scaledImage.oriented(.down)
+        }
         let cropRect = CGRect(origin: .zero, size: inputSize)
         
         ciContext.render(scaledImage, to: outputBuffer, bounds: cropRect, colorSpace: CGColorSpaceCreateDeviceRGB())
@@ -673,7 +680,10 @@ class MLInferenceManager: ObservableObject {
         let scaleY = modelInputSize.height / inputSize.height
         let scaleTransform = CGAffineTransform(scaleX: scaleX, y: scaleY)
         
-        let scaledImage = inputImage.transformed(by: scaleTransform)
+        var scaledImage = inputImage.transformed(by: scaleTransform)
+        if applyServerImageOrientation {
+            scaledImage = scaledImage.oriented(.down)
+        }
         let cropRect = CGRect(origin: .zero, size: modelInputSize)
         
         // Render using the same CIContext approach as ARViewContainer
@@ -756,7 +766,11 @@ class MLInferenceManager: ObservableObject {
                         let report = ActionTransformUtils.debugTransformReport(src, rotationUnit: self?.rotationUnit ?? .eulerXYZ)
                         print(report)
                     }
-                    let robot = ActionTransformUtils.toRobotActions(src, rotationUnit: self?.rotationUnit ?? .eulerXYZ)
+                    var robot = ActionTransformUtils.toRobotActions(src, rotationUnit: self?.rotationUnit ?? .eulerXYZ)
+                    // Clamp gripper to [0,1]
+                    if robot.count >= 7 {
+                        robot[6] = max(0.0, min(1.0, robot[6]))
+                    }
                     print("USB send (robot actions): \(robot.map { String(format: "%.3f", $0) }.joined(separator: ", "))")
                     self?.sendJointActionsToUSB(robot)
                 }
@@ -799,7 +813,10 @@ class MLInferenceManager: ObservableObject {
                 // Send joint actions to USB if streaming is enabled (transform to robot frame)
                 if jointPositions.count >= 7 {
                     let src = Array(jointPositions.prefix(7))
-                    let robot = ActionTransformUtils.toRobotActions(src)
+                    var robot = ActionTransformUtils.toRobotActions(src)
+                    if robot.count >= 7 {
+                        robot[6] = max(0.0, min(1.0, robot[6]))
+                    }
                     print("USB send (robot actions): \(robot.map { String(format: "%.3f", $0) }.joined(separator: ", "))")
                     self?.sendJointActionsToUSB(robot)
                 }

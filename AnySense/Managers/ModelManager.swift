@@ -157,29 +157,47 @@ class ModelManager: ObservableObject {
             
             print("DEBUG: Processing file from: \(sourceURL.path)")
             
-            // Generate model name
+            // Generate model name (strip known extensions)
             let fileName = sourceURL.lastPathComponent
-            let modelName = customName ?? fileName.replacingOccurrences(of: ".mlmodel", with: "")
+            let ext = sourceURL.pathExtension.lowercased()
+            let baseName = sourceURL.deletingPathExtension().lastPathComponent
+            let modelName = customName ?? baseName
             
             // Check for duplicate names
             if availableModels.contains(where: { $0.name == modelName }) {
                 throw ModelError.duplicateName("A model with this name already exists")
             }
             
-            // Copy to our app's permanent storage WHILE we have access
-            let localModelURL = try ModelFileUtilities.copyUploadedModel(from: sourceURL, withName: modelName)
-            print("DEBUG: Copied to local storage: \(localModelURL.path)")
+            // Decide import strategy by extension
+            let fm = FileManager.default
+            let uploadsDir = ModelFileUtilities.uploadedModelsDirectory
+            var fileSize: Int64 = 0
+            var finalCompiledURL: URL? = nil
+            var localModelURL: URL? = nil
             
-            // Basic file validation (check extension and file exists)
-            guard localModelURL.pathExtension.lowercased() == "mlmodel" else {
-                throw ModelError.invalidFile("File must have .mlmodel extension")
+            switch ext {
+            case "mlmodel":
+                // Copy raw .mlmodel and compile
+                let local = try ModelFileUtilities.copyUploadedModel(from: sourceURL, withName: modelName)
+                localModelURL = local
+                print("DEBUG: Copied .mlmodel to local storage: \(local.path)")
+                guard fm.fileExists(atPath: local.path) else { throw ModelError.modelNotFound("Copied file does not exist") }
+                fileSize = MLModel.getModelSize(at: local)
+            case "mlpackage":
+                // Compile the .mlpackage directly from sourceURL (no need to copy the whole package first)
+                localModelURL = sourceURL
+                fileSize = MLModel.getModelSize(at: sourceURL)
+            case "mlmodelc":
+                // Already compiled; copy as-is into uploads directory with normalized name
+                let dest = uploadsDir.appendingPathComponent("\(modelName).mlmodelc")
+                if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
+                try fm.copyItem(at: sourceURL, to: dest)
+                finalCompiledURL = dest
+                fileSize = MLModel.getModelSize(at: dest)
+                print("DEBUG: Copied compiled model (.mlmodelc) to: \(dest.path)")
+            default:
+                throw ModelError.invalidFile("Unsupported file type. Use .mlmodel, .mlpackage, or .mlmodelc")
             }
-            
-            guard FileManager.default.fileExists(atPath: localModelURL.path) else {
-                throw ModelError.modelNotFound("Copied file does not exist")
-            }
-            
-            let fileSize = MLModel.getModelSize(at: localModelURL)
 
             let modelUploadDate = Date() // Use current date as upload date
             
@@ -198,34 +216,31 @@ class ModelManager: ObservableObject {
                 saveModelRegistry()
             }
             
-            // Compile the local model (this will fail if model is invalid)
-            let tempCompiledURL = try await MLModel.compileModel(at: localModelURL) { [weak self] progress in
-                DispatchQueue.main.async {
-                    self?.compilationProgress = progress
+            // If we imported a raw .mlmodel, compile it now
+            if (ext == "mlmodel" || ext == "mlpackage"), let local = localModelURL {
+                let tempCompiledURL = try await MLModel.compileModel(at: local) { [weak self] progress in
+                    DispatchQueue.main.async { self?.compilationProgress = progress }
                 }
+                print("DEBUG: Compiled to temp location: \(tempCompiledURL.path)")
+                // Validate compiled
+                do {
+                    let metadata = try MLModel.validateModel(at: tempCompiledURL)
+                    guard metadata.isCompatible else { throw ModelError.incompatibleModel("Model format not compatible with app requirements") }
+                    print("DEBUG: Model validation passed")
+                } catch { print("DEBUG: Model validation warning: \(error.localizedDescription)") }
+                // Move compiled to uploads dir
+                finalCompiledURL = try ModelFileUtilities.replaceCompiledModel(
+                    compiledURL: tempCompiledURL,
+                    withName: modelName
+                )
+                print("DEBUG: Final compiled location: \(finalCompiledURL!.path)")
+            } else if let compiled = finalCompiledURL {
+                // Validate mlpackage/mlmodelc directly
+                do {
+                    let metadata = try MLModel.validateModel(at: compiled)
+                    print("DEBUG: Direct model validation: compatible=\(metadata.isCompatible)")
+                } catch { print("DEBUG: Model validation warning: \(error.localizedDescription)") }
             }
-            
-            print("DEBUG: Compiled to temp location: \(tempCompiledURL.path)")
-            
-            // Now validate the compiled model for compatibility
-            do {
-                let metadata = try MLModel.validateModel(at: tempCompiledURL)
-                guard metadata.isCompatible else {
-                    throw ModelError.incompatibleModel("Model format not compatible with app requirements")
-                }
-                print("DEBUG: Model validation passed")
-            } catch {
-                print("DEBUG: Model validation warning: \(error.localizedDescription)")
-                // Continue anyway - some models might work even if validation reports issues
-            }
-            
-            // Move compiled model to permanent location using best practices
-            let finalCompiledURL = try ModelFileUtilities.replaceCompiledModel(
-                compiledURL: tempCompiledURL,
-                withName: modelName
-            )
-            
-            print("DEBUG: Final compiled location: \(finalCompiledURL.path)")
             
             // Update model status
             let modelId = modelInfo.id
