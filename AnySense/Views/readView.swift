@@ -173,7 +173,24 @@ struct ReadView : View{
                 VStack {
                     Spacer()
                     HStack {
+                        // Flashlight column (left)
+                        if appStatus.rgbdVideoStreaming == .off {
+                            VStack(spacing: 4) {
+                                Button(action: toggleFlash) {
+                                    Image(systemName: openFlash ? "flashlight.off.circle.fill" : "flashlight.on.circle.fill")
+                                        .resizable()
+                                        .frame(height: 36)
+                                        .frame(width: 36)
+                                }
+                                Text(openFlash ? "Flash off" : "Flash on")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        
                         Spacer()
+                        
+                        // Record button (center)
                         ZStack{
                             Image(systemName: "circle")
                                 .resizable()
@@ -196,26 +213,29 @@ struct ReadView : View{
                             }
                             .buttonStyle(scaleButtonStyle(isRecording: $isReading))
                         }
-                        .padding(.bottom, arViewPadding / 4.0 - (buttonSize / 4.0))
-                        
-                        // Goal tap button - only for point-conditioned models and when not streaming
-                        if appStatus.rgbdVideoStreaming == .off, (arViewModel.mlManager?.isPointConditioned ?? false) {
-                            Button(action: {
-                                // Toggle goal tap mode on ARViewModel
-                                arViewModel.goalTapModeEnabled.toggle()
-                            }) {
-                                Image(systemName: arViewModel.goalTapModeEnabled ? "dot.circle.fill" : "target")
-                                    .resizable()
-                                    .frame(height: 36)
-                                    .frame(width: 36)
-                                    .foregroundStyle(arViewModel.goalTapModeEnabled ? Color.green : Color.blue)
-                            }
-                            .padding(.leading, 12)
-                            .padding(.bottom, arViewPadding / 4.0 - (buttonSize / 4.0))
-                            .help("Tap to set goal in AR view")
-                        }
+
                         Spacer()
+
+                        // Goal button + caption (right)
+                        if appStatus.rgbdVideoStreaming == .off, (arViewModel.mlManager?.isPointConditioned ?? false) {
+                            VStack(spacing: 4) {
+                                Button(action: {
+                                    arViewModel.goalTapModeEnabled.toggle()
+                                }) {
+                                    Image(systemName: arViewModel.goalTapModeEnabled ? "dot.circle.fill" : "target")
+                                        .resizable()
+                                        .frame(height: 36)
+                                        .frame(width: 36)
+                                        .foregroundStyle(arViewModel.goalTapModeEnabled ? Color.green : Color.blue)
+                                }
+                                Text("Set goal")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, arViewPadding / 4.0 - (buttonSize / 4.0))
                 }
                 
                 

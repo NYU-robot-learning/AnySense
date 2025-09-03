@@ -19,8 +19,6 @@ struct SettingsView : View{
     @State private var showingFilePicker = false
     @State private var showingAlert = false
     @State private var alertMessage = ""
-    @State private var showingDeleteConfirmation = false
-    @State private var modelToDelete: ModelInfo?
     
     // Track current frequency for UI updates
     @State private var currentFrequencyIndex: Int = 1
@@ -160,111 +158,11 @@ struct SettingsView : View{
                         .id(modelManager.activeModelID?.uuidString ?? "none") // Force refresh when activeModel changes
                     }
                     
-                    // Active Model Info
-                    if let activeModel = modelManager.activeModel {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Text("Current Model:")
-                                    .font(.body)
-                                    .foregroundColor(.primary)
-                                Spacer()
-                                Text(activeModel.displayName)
-                                    .font(.body)
-                                    .fontWeight(.medium)
-                                    .foregroundColor(.blue)
-                            }
-                            
-                            HStack {
-                                Text("Status:")
-                                    .font(.caption)
-                                    .foregroundColor(.gray)
-                                Spacer()
-                                Text(activeModel.statusDescription)
-                                    .font(.caption)
-                                    .foregroundColor(activeModel.compilationStatus.isCompiled ? .green : .orange)
-                            }
-                            
-                            HStack {
-                                Text("Uploaded:")
-                                    .font(.caption)
-                                    .foregroundColor(.gray)
-                                Spacer()
-                                Text(activeModel.uploadDate.formatted(date: .abbreviated, time: .omitted))
-                                    .font(.caption)
-                                    .foregroundColor(.gray)
-                            }
-                            
-                            if activeModel.source == .uploaded && activeModel.fileSize > 0 {
-                                HStack {
-                                    Text("Size:")
-                                        .font(.caption)
-                                        .foregroundColor(.gray)
-                                    Spacer()
-                                    Text(ByteCountFormatter.string(fromByteCount: activeModel.fileSize, countStyle: .file))
-                                        .font(.caption)
-                                        .foregroundColor(.gray)
-                                }
-                            }
-                        }
-                        .padding(.vertical, 5)
-                    }
                     
-                    // Uploaded Models Management
-                    let uploadedModels = modelManager.availableModels.filter { $0.source == .uploaded }
-                    if !uploadedModels.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Uploaded Models")
-                                .font(.body)
-                                .foregroundColor(.primary)
-                            
-                            ForEach(uploadedModels) { model in
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(model.name)
-                                            .font(.caption)
-                                            .fontWeight(.medium)
-                                        Text(model.statusDescription)
-                                            .font(.caption2)
-                                            .foregroundColor(model.compilationStatus.isCompiled ? .green : .orange)
-                                        Text(model.uploadDate.formatted(date: .abbreviated, time: .omitted))
-                                            .font(.caption2)
-                                            .foregroundColor(.gray)
-                                    }
-                                    
-                                    Spacer()
-                                    
-                                    if model.isActive {
-                                        Text("Active")
-                                            .font(.caption2)
-                                            .padding(.horizontal, 6)
-                                            .padding(.vertical, 2)
-                                            .background(Color.green.opacity(0.2))
-                                            .foregroundColor(.green)
-                                            .cornerRadius(4)
-                                    } else if model.compilationStatus.isCompiled {
-                                        Button("Activate") {
-                                            modelManager.setActiveModel(id: model.id)
-                                        }
-                                        .foregroundColor(.blue)
-                                        .font(.caption)
-                                    }
-                                    
-                                    Button("Delete") {
-                                        modelToDelete = model
-                                        showingDeleteConfirmation = true
-                                    }
-                                    .foregroundColor(.red)
-                                    .font(.caption)
-                                }
-                                .padding(.vertical, 2)
-                            }
-                        }
-                        .padding(.vertical, 5)
-                    }
                     
-                    // Use Policy Toggle - Context Aware
+                    // Use Inference Toggle - Context Aware
                     HStack {
-                        Text("Use Policy")
+                        Text("Use Inference")
                             .font(.body)
                             .foregroundColor(.primary)
                         Spacer()
@@ -402,16 +300,6 @@ struct SettingsView : View{
         } message: {
             Text(alertMessage)
         }
-        .alert("Delete Model", isPresented: $showingDeleteConfirmation) {
-            Button("Cancel", role: .cancel) { }
-            Button("Delete", role: .destructive) {
-                if let model = modelToDelete {
-                    deleteModel(model)
-                }
-            }
-        } message: {
-            Text("Are you sure you want to delete '\(modelToDelete?.name ?? "")'? This action cannot be undone.")
-        }
     }
     
     // MARK: - Model Upload Handling
@@ -440,16 +328,6 @@ struct SettingsView : View{
         }
     }
     
-    private func deleteModel(_ model: ModelInfo) {
-        do {
-            try modelManager.deleteModel(id: model.id)
-            alertMessage = "Model '\(model.name)' deleted successfully."
-            showingAlert = true
-        } catch {
-            alertMessage = "Failed to delete model: \(error.localizedDescription)"
-            showingAlert = true
-        }
-    }
 }
 
 enum StreamingMode: String {
