@@ -230,7 +230,7 @@ class ARVisualizationManager: ObservableObject {
         // Apply frequency throttling
         if timestamp - lastVisualizationTime < visualizationFrequency.interval {
             if debugLoggingEnabled {
-                print("[Viz] throttled (\(timestamp - lastVisualizationTime)s < \(visualizationFrequency.interval)s)")
+                // Visualization throttled
             }
             return
         }
@@ -259,9 +259,7 @@ class ARVisualizationManager: ObservableObject {
         )
         let deltaTranslation = rotationWorldFromCamera * cameraDeltaTranslation
         
-        print("📱 ML input (x=down,y=right,z=back): (\(String(format: "%.3f", jointActions[0])), \(String(format: "%.3f", jointActions[1])), \(String(format: "%.3f", jointActions[2])))")
-        print("📲 Delta movement (x=right,y=up,z=forward): (\(String(format: "%.3f", deltaTranslation.x)), \(String(format: "%.3f", deltaTranslation.y)), \(String(format: "%.3f", deltaTranslation.z)))")
-        print("🎯 Confidence: \(String(format: "%.2f", confidence))")
+        // ML coordinate transform applied
         
         // Update position tracking
         let previousPosition = currentWorldPosition
@@ -269,9 +267,7 @@ class ARVisualizationManager: ObservableObject {
         
         // Only create movement arrow if there's meaningful movement and we have a previous position
         let movementMagnitude = length(deltaTranslation)
-        if debugLoggingEnabled {
-            print("[Viz] camera delta=\(cameraDeltaTranslation), world delta=\(deltaTranslation), mag=\(movementMagnitude)")
-        }
+        // Movement magnitude calculated
         if movementMagnitude > 0.005 || debugAlwaysDrawArrow { // draw even if tiny in debug
             createMovementArrow(
                 from: previousPosition,
@@ -281,7 +277,7 @@ class ARVisualizationManager: ObservableObject {
             )
         }
         
-        print("🎯 Position updated: \(String(format: "(%.3f,%.3f,%.3f)", currentWorldPosition.x, currentWorldPosition.y, currentWorldPosition.z)) → moved \(String(format: "%.3f", movementMagnitude))m")
+        // Position updated with movement delta
     }
     
     private func interpretMLDirections(_ jointActions: [Float]) -> (translation: SIMD3<Float>, rotation: simd_quatf, confidence: Float) {
@@ -359,7 +355,7 @@ class ARVisualizationManager: ObservableObject {
                 oldArrow.entity.removeFromParent()
             }
             
-            print("🏹 Movement arrow: from=\(String(format: "(%.3f,%.3f,%.3f)", from.x, from.y, from.z)) to=\(String(format: "(%.3f,%.3f,%.3f)", to.x, to.y, to.z)) move=\(String(format: "%.3f", movementMagnitude))m")
+            // Movement arrow created
         }
     }
     
@@ -442,9 +438,7 @@ class ARVisualizationManager: ObservableObject {
             }
         }
         
-        if !expiredArrows.isEmpty {
-            print("Cleaned up \(expiredArrows.count) expired movement arrows")
-        }
+        // Clean up expired arrows
     }
     
     private func eulerToQuaternion(roll: Float, pitch: Float, yaw: Float) -> simd_quatf {

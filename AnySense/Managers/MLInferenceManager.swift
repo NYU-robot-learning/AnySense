@@ -116,7 +116,7 @@ class MLInferenceManager: ObservableObject {
     private func loadActiveModel() {
         guard let activeModel = modelManager.activeModel,
               activeModel.compilationStatus.isCompiled else {
-            print("No active compiled model available")
+            // No active compiled model available
             model = nil
             modelMetadata = nil
             return
@@ -130,17 +130,12 @@ class MLInferenceManager: ObservableObject {
             modelMetadata = try ModelMetadata(from: loadedModel)
             
             setupModelInputTransform()
-            print("Successfully loaded model: \(activeModel.name)")
-            print("Model Type: \(modelMetadata?.modelType.displayName ?? "Unknown")")
-            print("Requires Goal Point: \(modelMetadata?.requiresGoalPoint ?? false)")
             
             // Set goal dimension based on model type
             if modelMetadata?.modelType == .pointConditioned {
                 goalDimension = 3  // VQ-BeT models expect 3D coordinates
-                print("✅ Set goal dimension to 3D for point-conditioned model")
             } else {
                 goalDimension = 2  // Standard models use 2D
-                print("✅ Set goal dimension to 2D for standard model")
             }
             
             // Clear goal point if switching to non-point-conditioned model
@@ -148,7 +143,6 @@ class MLInferenceManager: ObservableObject {
                 currentGoalPoint = nil
             }
         } catch {
-            print("Failed to load active model: \(error)")
             model = nil
             modelMetadata = nil
         }
@@ -187,13 +181,11 @@ class MLInferenceManager: ObservableObject {
     func setGoalPoint(_ point: simd_float3) {
         // Set goal point synchronously since UI needs immediate feedback
         self.currentGoalPoint = point
-        print("Goal point set to: [\(point.x), \(point.y), \(point.z)]")
     }
     
     func clearGoalPoint() {
         currentGoalPoint = nil
         odometryTracker.resetTracking()
-        print("Goal point cleared")
     }
     
     // MARK: - Odometry Integration Methods
@@ -206,12 +198,10 @@ class MLInferenceManager: ObservableObject {
         depthMap: CVPixelBuffer?
     ) -> Bool {
         guard enableOdometryTracking else {
-            print("Odometry tracking is disabled")
             return false
         }
         
         guard let session = getARSession() else {
-            print("Cannot start odometry tracking - no AR session available")
             return false
         }
         
@@ -223,11 +213,7 @@ class MLInferenceManager: ObservableObject {
             depthMap: depthMap
         )
         
-        if success {
-            print("Started Python-style odometry tracking")
-        } else {
-            print("Failed to start odometry tracking")
-        }
+        // Odometry tracking started
         
         return success
     }
@@ -246,14 +232,12 @@ class MLInferenceManager: ObservableObject {
         if let odometryResult = odometryTracker.updateTracking(currentFrame: arFrame) {
             // Update visualization with new target position from odometry
             arVisualizationManager?.updateTargetFromOdometry(odometryResult)
-            print("📍 Updated visualization target from odometry")
         }
     }
     
     /// Set goal dimension (2D or 3D goal conditioning)
     func setGoalDimension(_ dimension: Int) {
         goalDimension = dimension
-        print("Goal conditioning set to \\(dimension)D mode")
     }
     
     /// Get goal point for model input (2D or 3D based on goal_dim)
@@ -289,7 +273,6 @@ class MLInferenceManager: ObservableObject {
     func convertScreenToWorld(_ screenPoint: CGPoint, in view: UIView, arSession: ARSession? = nil, depthMap: CVPixelBuffer? = nil) -> simd_float3? {
         guard let session = arSession ?? getARSession(),
               let currentFrame = session.currentFrame else {
-            print("No AR session or current frame available")
             return nil
         }
         
@@ -434,7 +417,6 @@ class MLInferenceManager: ObservableObject {
         do {
             modelInput = try prepareModelInput(pixelBuffer, metadata: metadata)
         } catch {
-            print("Failed to prepare model input: \(error)")
             return
         }
         
@@ -450,7 +432,7 @@ class MLInferenceManager: ObservableObject {
                     let inferenceTime = CACurrentMediaTime() - startTime
                     self.processInferenceResults(output, inferenceTime: inferenceTime)
                 } catch {
-                    print("Failed to perform inference: \(error)")
+                    // Inference failed - continue processing
                 }
             }
         }
@@ -592,6 +574,7 @@ class MLInferenceManager: ObservableObject {
         let cropRect = CGRect(origin: .zero, size: inputSize)
         
         ciContext.render(scaledImage, to: outputBuffer, bounds: cropRect, colorSpace: CGColorSpaceCreateDeviceRGB())
+        print("Image processed for VQ-BeT: \(inputSize)")
         
         // Convert to MLMultiArray for VQ-BeT format
         // Support 4D [1,3,H,W] and 5D [1,1,3,H,W]
@@ -688,6 +671,7 @@ class MLInferenceManager: ObservableObject {
         
         // Render using the same CIContext approach as ARViewContainer
         ciContext.render(scaledImage, to: outputBuffer, bounds: cropRect, colorSpace: CGColorSpaceCreateDeviceRGB())
+        print("Image processed for inference: \(modelInputSize)")
         
         // Convert to MLMultiArray (simplified since we now have consistently formatted data)
         return try convertProcessedPixelBufferToMLMultiArray(outputBuffer)
@@ -725,7 +709,6 @@ class MLInferenceManager: ObservableObject {
     // MARK: - Result Processing
     private func processInferenceResults(_ output: MLFeatureProvider, inferenceTime: TimeInterval) {
         guard let metadata = modelMetadata else {
-            print("Failed to get model metadata for output processing")
             return
         }
         
@@ -736,7 +719,6 @@ class MLInferenceManager: ObservableObject {
             
             guard let outputFeatureName = outputFeatureName,
                   let resultArray = output.featureValue(for: outputFeatureName)?.multiArrayValue else {
-                print("Failed to get model output. Available outputs: \(output.featureNames)")
                 return
             }
             
@@ -764,21 +746,21 @@ class MLInferenceManager: ObservableObject {
                     let src = Array(jointPositions.prefix(7))
                     if self?.enableTransformDebug == true {
                         let report = ActionTransformUtils.debugTransformReport(src, rotationUnit: self?.rotationUnit ?? .eulerXYZ)
-                        print(report)
+                        print("Coordinate Transform: \(report)")
                     }
                     var robot = ActionTransformUtils.toRobotActions(src, rotationUnit: self?.rotationUnit ?? .eulerXYZ)
                     // Clamp gripper to [0,1]
                     if robot.count >= 7 {
                         robot[6] = max(0.0, min(1.0, robot[6]))
                     }
-                    print("USB send (robot actions): \(robot.map { String(format: "%.3f", $0) }.joined(separator: ", "))")
+                    print("Robot actions: [\(robot.map { String(format: "%.3f", $0) }.joined(separator: ", "))]")
                     self?.sendJointActionsToUSB(robot)
                 }
             }
             
             let positionString = jointPositions.map { String(format: "%.3f", $0) }.joined(separator: ", ")
             let modelName = modelManager.activeModel?.name ?? "Unknown"
-            print("Model Output [\(modelName)] (Standard) (\(outputFeatureName)): [\(positionString)] - \(String(format: "%.1f", inferenceTime * 1000))ms")
+            print("[\(modelName)] Standard: [\(positionString)] (\(String(format: "%.1f", inferenceTime * 1000))ms)")
             
         } else {
             // Point-conditioned models - use existing complex logic
@@ -786,8 +768,6 @@ class MLInferenceManager: ObservableObject {
             
             guard let outputFeatureName = outputFeatureName,
                   let resultArray = output.featureValue(for: outputFeatureName)?.multiArrayValue else {
-                print("Failed to get model output. Available outputs: \(output.featureNames)")
-                print("Expected output: \(metadata.primaryOutputName ?? "Unknown")")
                 return
             }
             
@@ -817,7 +797,7 @@ class MLInferenceManager: ObservableObject {
                     if robot.count >= 7 {
                         robot[6] = max(0.0, min(1.0, robot[6]))
                     }
-                    print("USB send (robot actions): \(robot.map { String(format: "%.3f", $0) }.joined(separator: ", "))")
+                    print("Robot actions: [\(robot.map { String(format: "%.3f", $0) }.joined(separator: ", "))]")
                     self?.sendJointActionsToUSB(robot)
                 }
             }
@@ -825,11 +805,11 @@ class MLInferenceManager: ObservableObject {
             let positionString = jointPositions.map { String(format: "%.3f", $0) }.joined(separator: ", ")
             let modelName = modelManager.activeModel?.name ?? "Unknown"
             let modelTypeStr = metadata.modelType.displayName
-            print("Model Output [\(modelName)] (\(modelTypeStr)) (\(outputFeatureName)): [\(positionString)] - \(String(format: "%.1f", inferenceTime * 1000))ms")
+            print("[\(modelName)] \(modelTypeStr): [\(positionString)] (\(String(format: "%.1f", inferenceTime * 1000))ms)")
             
             // Log goal point status for point-conditioned models
             if metadata.requiresGoalPoint, let goalPoint = currentGoalPoint {
-                print("Goal Point: [\(String(format: "%.3f", goalPoint.x)), \(String(format: "%.3f", goalPoint.y)), \(String(format: "%.3f", goalPoint.z))]")
+                print("Goal: [\(String(format: "%.3f", goalPoint.x)), \(String(format: "%.3f", goalPoint.y)), \(String(format: "%.3f", goalPoint.z))]")
             }
         }
     }
@@ -838,21 +818,21 @@ class MLInferenceManager: ObservableObject {
     func enableInference() {
         isInferenceEnabled = true
         let modelName = modelManager.activeModel?.name ?? "No model"
-        print("Pick Up Policy enabled with model: \(modelName)")
+        print("Inference enabled: \(modelName)")
         if enableTransformDebug {
-            print("Transform debug is ENABLED (rotationUnit=\(rotationUnit))")
+            print("Transform debug enabled (\(rotationUnit))")
         }
     }
     
     func disableInference() {
         isInferenceEnabled = false
         latestResult = nil
-        print("Pick Up Policy disabled")
+        print("Inference disabled")
     }
     
     func setInferenceFrequency(_ frequency: InferenceFrequency) {
         inferenceFrequency = frequency
-        print("Pick Up Policy frequency set to: \(frequency.displayName)")
+        print("Inference frequency: \(frequency.displayName)")
     }
     
     // MARK: - Frequency Synchronization
@@ -871,7 +851,7 @@ class MLInferenceManager: ObservableObject {
         }
         
         arVisualizationManager?.setVisualizationFrequency(correspondingVisualizationFrequency)
-        print("Synchronized ML inference (\(inferenceFrequency.displayName)) with AR visualization (\(correspondingVisualizationFrequency.displayName))")
+        print("Synchronized frequencies: \(inferenceFrequency.displayName)")
     }
     
     // MARK: - Odometry Integration Validation
@@ -884,11 +864,10 @@ class MLInferenceManager: ObservableObject {
         
         let isValid = hasTracker && hasARConnection && hasVisualizationConnection
         
-        print("Odometry Integration Validation:")
-        print("  - Tracker exists: \(hasTracker)")
-        print("  - AR Connection: \(hasARConnection)")
-        print("  - Visualization Connection: \(hasVisualizationConnection)")
-        print("  - Overall valid: \(isValid)")
+        print("Odometry validation: \(isValid ? "OK" : "Failed")")
+        if !isValid {
+            print("Issues: tracker=\(hasTracker), AR=\(hasARConnection), viz=\(hasVisualizationConnection)")
+        }
         
         return isValid
     }

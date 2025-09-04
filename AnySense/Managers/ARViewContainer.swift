@@ -249,7 +249,6 @@ class ARViewModel: ObservableObject{
     private func setupAudioSession() {
         guard let audioDevice = AVCaptureDevice.default(for: .audio),
               let audioDeviceInput = try? AVCaptureDeviceInput(device: audioDevice) else {
-              print("Unable to access microphone.")
               return
         }
         audioSession.addInput(audioDeviceInput)
@@ -277,19 +276,15 @@ class ARViewModel: ObservableObject{
                 
                 if !self.depthStatus.isDepthAvailable { break }
                 
-                if self.combinedDepthTransform == nil {
-                    if self.initializeDepthTransform(frame: currentFrame, flipTransform: flipTransform) {
-                        break
-                    }
-                }
-                
-                self.depthRetryCount += 1
-                usleep(10000)
+                        if self.combinedDepthTransform == nil {
+            if self.initializeDepthTransform(frame: currentFrame, flipTransform: flipTransform) {
+                break
             }
-            
-            if self.combinedDepthTransform == nil {
-                print("Depth initialization failed after \(self.maxDepthRetries) attempts.")
-            }
+        }
+        
+        self.depthRetryCount += 1
+        usleep(10000)
+    }
         }
     }
     
@@ -308,7 +303,6 @@ class ARViewModel: ObservableObject{
     
     private func initializeDepthTransform(frame: ARFrame, flipTransform: CGAffineTransform) -> Bool {
         guard let depthPixelBuffer = frame.sceneDepth?.depthMap else {
-            print("Depth map unavailable. Retrying (\(self.depthRetryCount)/\(self.maxDepthRetries))")
             return false
         }
         let depthSize = CGSize(width: CVPixelBufferGetWidth(depthPixelBuffer), height: CVPixelBufferGetHeight(depthPixelBuffer))
@@ -333,14 +327,11 @@ class ARViewModel: ObservableObject{
         }
         
         setupTransforms()
-
-        print("Finished setting up ARViewModel.")
     }
 
     func startARSession() {
         let status = AVCaptureDevice.authorizationStatus(for: .video)
             guard status == .authorized else {
-                print("Camera permissions not granted.")
                 return
         }
         // Create and configure the AR session configuration
@@ -349,11 +340,8 @@ class ARViewModel: ObservableObject{
         // Loop through available video formats and select the wide-angle camera format
         for videoFormat in ARWorldTrackingConfiguration.supportedVideoFormats {
             if videoFormat.captureDeviceType == .builtInWideAngleCamera {
-                print("Wide-angle camera selected: \(videoFormat)")
                 configuration.videoFormat = videoFormat
                 break
-            } else {
-                print("Unsupported video format: \(videoFormat.captureDeviceType)")
             }
         }
         
@@ -370,7 +358,6 @@ class ARViewModel: ObservableObject{
         
         // Run the session with the configuration
         session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
-        print("Starting session")
         isOpen = true
     }
     
@@ -383,7 +370,6 @@ class ARViewModel: ObservableObject{
         session.pause() // Pause before releasing resources
         session = ARSession() // Replace with a new ARSession
         isOpen = false
-        print("ARSession killed and reset.")
     }
     
     func startUSBStreaming() {
@@ -409,7 +395,6 @@ class ARViewModel: ObservableObject{
             &rgbBuffer
         )
         guard status == kCVReturnSuccess else {
-            print("Failed to create CVPixelBuffer")
             return
         }
         self.rgbOutputPixelBufferUSB = rgbBuffer
@@ -428,7 +413,6 @@ class ARViewModel: ObservableObject{
             )
             
             guard depthStatus == kCVReturnSuccess else {
-                print("Failed to create CVPixelBuffer")
                 return
             }
             self.depthOutputPixelBufferUSB = depthBuffer
@@ -442,13 +426,11 @@ class ARViewModel: ObservableObject{
                 &depthConfidenceBuffer
             )
             guard depthConfidenceStatus == kCVReturnSuccess else {
-                print("Failed to create CVPixelBuffer")
                 return
             }
             self.depthConfidenceOutputPixelBufferUSB = depthConfidenceBuffer
         }
         
-        print("Made all USB Buffers")
         usbManager.connect()
     }
     
@@ -585,11 +567,9 @@ class ARViewModel: ObservableObject{
             if let latestJointActions = self.mlManager?.latestResult?.jointPositions, !latestJointActions.isEmpty {
                 // Use actual ML inference results, ensure exactly 7 values
                 jointActionsArray = Array(latestJointActions.prefix(7)) + Array(repeating: 0.0, count: max(0, 7 - latestJointActions.count))
-                print("Streaming ML joint actions: [\(jointActionsArray.map { String(format: "%.3f", $0) }.joined(separator: ", "))]")
             } else {
                 // Fallback to zeros if no ML results available
                 jointActionsArray = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-                print("No ML results available, streaming zero joint actions")
             }
             
             // Convert to exactly 28 bytes (7 floats * 4 bytes each)
@@ -663,19 +643,17 @@ class ARViewModel: ObservableObject{
         
         assetWriter?.finishWriting {
             self.assetWriter = nil
-            print("RGB Video recording finished.")
         }
         
         depthVideoInput?.markAsFinished()
         depthAssetWriter?.finishWriting {
             self.depthAssetWriter = nil
-            print("Depth Video recording finished.")
         }
 
         do {
             try poseFileHandle?.close()
         } catch {
-            print("Error closing pose file")
+            // Error closing pose file - continue cleanup
         }
         
         updateDemoCounter()
@@ -697,7 +675,6 @@ class ARViewModel: ObservableObject{
         ]
         
         guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            print("Failed to get document directory")
             return nil
         }
         
@@ -716,7 +693,7 @@ class ARViewModel: ObservableObject{
             }
             try createFile(fileURL: poseTextURL)
         } catch {
-            print("Error creating directories")
+            // Error creating directories - continue with setup
         }
         
         self.rgbDirect = rgbImagesDirectory
@@ -771,7 +748,7 @@ class ARViewModel: ObservableObject{
             self.poseFileHandle = try FileHandle(forWritingTo: poseTextURL)
             try poseFileHandle?.seekToEnd()
         } catch {
-            print("Failed to setup recording: \(error)")
+            // Failed to setup recording - continue with available configuration
         }
 
         return RecordingFiles(
@@ -810,7 +787,7 @@ class ARViewModel: ObservableObject{
                 sourcePixelBufferAttributes: recordingDepthAttributes
             )
         } catch {
-            print("Failed to setup depth recording: \(error)")
+            // Failed to setup depth recording - continue without depth
         }
     }
     
@@ -830,14 +807,10 @@ class ARViewModel: ObservableObject{
         self.ciContext.render(transformedImage, to: outputBuffer, bounds: cropRect, colorSpace: CGColorSpaceCreateDeviceRGB())
         
         guard let pixelBufferAdapter = self.pixelBufferAdapter else {
-            print("Failed to append RGB pixel buffer: Pixel buffer adapter is nil.")
             return false
         }
         
         if !pixelBufferAdapter.append(outputBuffer, withPresentationTime: currentTime) {
-            let isReady = pixelBufferAdapter.assetWriterInput.isReadyForMoreMediaData
-            let writerError = self.assetWriter?.error?.localizedDescription ?? "Unknown asset writer error."
-            print("Failed to append RGB pixel buffer. Adapter state: \(isReady), Time: \(currentTime), Error: \(writerError)")
             return false
         }
         CVPixelBufferUnlockBaseAddress(outputBuffer, [])
@@ -849,14 +822,12 @@ class ARViewModel: ObservableObject{
         guard let depthVideoInput = self.depthVideoInput, depthVideoInput.isReadyForMoreMediaData else { return false }
         guard let depthPixelBuffer = depthPixelBuffer else { return false }
         guard let pixelBufferPool = self.depthPixelBufferAdapter?.pixelBufferPool else {
-            print("Depth pixel buffer pool is nil.")
             return false
         }
         
         var outputPixelBuffer: CVPixelBuffer?
         let status = CVPixelBufferPoolCreatePixelBuffer(nil, pixelBufferPool, &outputPixelBuffer)
         guard status == kCVReturnSuccess, let depthOutputBuffer = outputPixelBuffer else {
-            print("Unable to create output pixel buffer for depth.")
             return false
         }
             
@@ -876,14 +847,10 @@ class ARViewModel: ObservableObject{
         )
         
         guard let depthPixelBufferAdapter = self.depthPixelBufferAdapter else {
-            print("Failed to append depth pixel buffer: Pixel buffer adapter is nil.")
             return false
         }
         
         if !depthPixelBufferAdapter.append(depthOutputBuffer, withPresentationTime: currentTime) {
-            let isReady = depthPixelBufferAdapter.assetWriterInput.isReadyForMoreMediaData
-            let writerError = self.depthAssetWriter?.error?.localizedDescription ?? "Unknown asset writer error."
-            print("❌ Failed to append RGB pixel buffer. Adapter state: \(isReady), Time: \(currentTime), Error: \(writerError)")
             return false
         }
         CVPixelBufferUnlockBaseAddress(depthOutputBuffer, [])
@@ -909,7 +876,7 @@ class ARViewModel: ObservableObject{
                 try self.poseFileHandle?.write(contentsOf: data)
             }
         } catch {
-            print("❌ Error writing pose data: \(error)")
+            // Error writing pose data - continue capture
         }
     }
     
@@ -924,8 +891,6 @@ class ARViewModel: ObservableObject{
         
         if let outputImage = depthFilter.outputImage {
             filteredImage = outputImage
-        } else {
-            print("❌ Failed to apply color controls filter to depth image.")
         }
         
         if(self.isColorMapOpened){
@@ -935,8 +900,6 @@ class ARViewModel: ObservableObject{
             falseColorFilter.inputImage = filteredImage
             if let outputImage = falseColorFilter.outputImage {
                 filteredImage = outputImage
-            } else {
-                print("❌ Failed to apply false color filter to depth image.")
             }
         }
         return filteredImage.transformed(by: self.combinedDepthTransform ?? CGAffineTransform.identity) //.cropped(to: cropRect)
@@ -961,7 +924,7 @@ class ARViewModel: ObservableObject{
         do {
             try data.write(to: fileURL)
         } catch {
-            print("Error saving binary file: \(error)")
+            // Error saving binary file - continue capture
         }
     }
     
@@ -1008,7 +971,6 @@ class ARViewModel: ObservableObject{
     
     func getDocumentsDirect() -> URL{
         let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
-        print(paths[0].path)
         return paths[0]
     }
     
@@ -1016,11 +978,9 @@ class ARViewModel: ObservableObject{
         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
         do{
             let contents = try FileManager.default.contentsOfDirectory(at: documentsURL[0], includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants])
-            print(contents.count)
             demosCounter = contents.count
-            print(demosCounter)
         } catch {
-            print("Error reading directory contents: \(error)")
+            demosCounter = 0
         }
     }
     
@@ -1034,11 +994,6 @@ class ARViewModel: ObservableObject{
         self.mlManager?.setARViewContainer(self)
         
         // ML results are now accessed directly during streaming for better real-time performance
-        
-        print("Initialized ML Inference Manager with Model Manager")
-        print("Connected AR Visualization Manager to ML Inference")
-        print("Connected ML Results to USB Streaming")
-        print("🔗 ML-AR Connection: \(self.mlManager?.arVisualizationManager != nil ? "✅ Connected" : "❌ Failed")")
     }
     
      }
@@ -1053,7 +1008,6 @@ class AudioCaptureDelegate: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         // Append audio sample buffer to the writer input
         guard writerInput?.isReadyForMoreMediaData == true else {
-            print("Not ready")
             return
         }
         writerInput?.append(sampleBuffer)

@@ -39,7 +39,7 @@ class BluetoothManager :  NSObject, ObservableObject{
         centralManager?.stopScan()
         centralManager = nil
         
-        print("BluetoothManager deinitialized and cleaned up")
+        // BluetoothManager deinitialized
     }
 }
 
@@ -47,20 +47,19 @@ extension BluetoothManager: CBCentralManagerDelegate{
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         switch central.state {
                   case .poweredOff:
-                      print("Is Powered Off.")
+                      break
                   case .poweredOn:
-                      print("Is Powered On.")
                       self.scan()
                   case .unsupported:
-                      print("Is Unsupported.")
+                      break
                   case .unauthorized:
-                      print("Is Unauthorized.")
+                      break
                   case .unknown:
-                      print("Unknown")
+                      break
                   case .resetting:
-                      print("Resetting")
+                      break
                   @unknown default:
-                      print("Error")
+                      break
                   }
     }
     func scan() -> Void{
@@ -106,7 +105,6 @@ extension BluetoothManager: CBCentralManagerDelegate{
 
         // Disconnect if already connected to another peripheral
         if let currentPeripheral = matchedPeripheral, currentPeripheral.identifier != peripheral.identifier {
-            print("🔄 Disconnecting previous peripheral: \(currentPeripheral.name ?? "Unknown")")
             central.cancelPeripheralConnection(currentPeripheral)
         }
         
@@ -143,10 +141,7 @@ extension BluetoothManager: CBCentralManagerDelegate{
 
 extension BluetoothManager: CBPeripheralDelegate{
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
-            print("*******************************************************")
-
             if ((error) != nil) {
-                print("Error discovering services: \(error!.localizedDescription)")
                 return
             }
             guard let services = peripheral.services else {
@@ -156,7 +151,6 @@ extension BluetoothManager: CBPeripheralDelegate{
             for service in services {
                 peripheral.discoverCharacteristics(nil, for: service)
             }
-            print("Discovered Services: \(services)")
         }
     
     func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
@@ -164,27 +158,18 @@ extension BluetoothManager: CBPeripheralDelegate{
               return
           }
 
-          print("Found \(characteristics.count) characteristics.")
-    //        NOTE: We will simply take the first Rx characteristic and use it for reading
           for characteristic in characteristics {
               if characteristic.properties.contains(.notify) || characteristic.properties.contains(.indicate) {
-                  print("This characteristic is Rx (Receiving data)")
                   rxCharacteristic = characteristic
                   peripheral.setNotifyValue(true, for: rxCharacteristic!)
                   peripheral.readValue(for: characteristic)
-                  print("RX Characteristic: \(rxCharacteristic.uuid)")
                   break
-              }
-              if characteristic.properties.contains(.write) || characteristic.properties.contains(.writeWithoutResponse) {
-                  print("This characteristic is Tx (Transmitting data)")
-    //                  TODO: Code for handling Tx characteristics goes here
               }
           }
     }
     
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         if let error = error {
-            print("Error updating characteristic: \(error.localizedDescription)")
             return
         }
     }
@@ -196,19 +181,19 @@ extension BluetoothManager: CBPeripheralManagerDelegate {
     func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
         switch peripheral.state {
         case .poweredOn:
-            print("Peripheral Is Powered On.")
+            break
         case .unsupported:
-            print("Peripheral Is Unsupported.")
+            break
         case .unauthorized:
-            print("Peripheral Is Unauthorized.")
+            break
         case .unknown:
-            print("Peripheral Unknown")
+            break
         case .resetting:
-            print("Peripheral Resetting")
+            break
         case .poweredOff:
-            print("Peripheral Is Powered Off.")
+            break
         @unknown default:
-            print("Error")
+            break
         }
     }
 
@@ -219,7 +204,7 @@ extension BluetoothManager: CBPeripheralManagerDelegate {
             try self.BTFileHandle?.seekToEnd()
             
         } catch {
-            print("Error opening BTFileHandle")
+            // Error opening BTFileHandle
         }
         
         displayLink = CADisplayLink(target: self, selector: #selector(recordSingleData))
@@ -233,7 +218,7 @@ extension BluetoothManager: CBPeripheralManagerDelegate {
         do {
             try BTFileHandle?.close()
         } catch {
-            print("Error closing pose file")
+            // Error closing pose file
         }
     }
     

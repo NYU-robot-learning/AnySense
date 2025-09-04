@@ -43,126 +43,92 @@ struct ReadView : View{
             ZStack {
             // Apply the custom background color
             Color.customizedBackground
-                .ignoresSafeArea()
+                .ignoresSafeArea(edges: .top)
             ZStack{
                 ZStack {
                     ARViewContainer(
                         session: arViewModel.session,
                         arVisualizationManager: arViewModel.arVisualizationManager
                     )
-                    .edgesIgnoringSafeArea(.all)
-                    .opacity(appStatus.rgbdVideoStreaming == .off ? 1 : 0)
-                    .allowsHitTesting(appStatus.rgbdVideoStreaming == .off) // Disable interaction in streaming mode
+                    .allowsHitTesting(true)
                     
                     
                 }
                 .frame(width: arViewWidth, height: arViewHeight)
                 .padding(.bottom, arViewPadding)
                 
-                // ML Status Overlay
-                if appStatus.rgbdVideoStreaming == .off {
-                    VStack {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 8) {
-                                // ML Inference Results (only when enabled)
-                                if appStatus.mlInferenceEnabled && arViewModel.mlManager?.isInferenceEnabled == true {
-                                    if let mlManager = arViewModel.mlManager {
-                                        MLInferenceResultsView(mlManager: mlManager)
-                                    }
+                // ML Status Overlay (shown in all modes)
+                VStack {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 8) {
+                            // ML Inference Results (only when enabled)
+                            if appStatus.mlInferenceEnabled && arViewModel.mlManager?.isInferenceEnabled == true {
+                                if let mlManager = arViewModel.mlManager {
+                                    MLInferenceResultsView(mlManager: mlManager)
                                 }
-                                
                             }
-                            Spacer()
+                            
                         }
                         Spacer()
-                        // AR Visualization Status Overlay
-                        HStack {
-                                                    VStack(alignment: .leading, spacing: 4) {
-                            if arViewModel.arVisualizationManager.isVisualizationEnabled {
-                                Text("Movement Tracking: ON")
-                                    .font(.caption)
-                                    .foregroundColor(.green)
-                                Text("Max Arrows: \(arViewModel.arVisualizationManager.maxArrows)")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            } else {
-                                Text("Movement Tracking: OFF")
-                                    .font(.caption)
-                                    .foregroundColor(.red)
+                    }
+                    Spacer()
+                    // AR Visualization Status Overlay
+                    HStack {
+                                                VStack(alignment: .leading, spacing: 4) {
+                        if arViewModel.arVisualizationManager.isVisualizationEnabled {
+                            Text("Movement Tracking: ON")
+                                .font(.caption)
+                                .foregroundColor(.green)
+                            Text("Max Arrows: \(arViewModel.arVisualizationManager.maxArrows)")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("Movement Tracking: OFF")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
+                    }
+                        .padding(8)
+                        .background(Color.black.opacity(0.6))
+                        .cornerRadius(8)
+                        Spacer()
+                    }
+                    .padding(.bottom, 10)
+                }
+                .frame(width: arViewWidth, height: arViewHeight)
+                .padding(.bottom, arViewPadding)
+                
+                
+                // Bluetooth status bar (shown in all modes)
+                Text(appStatus.ifBluetoothConnected ? "bluetooth device connected" : "bluetooth device disconnected")
+                    .font(.footnote)
+                    .foregroundColor(Color.white)
+                    .frame(width: screenWidth, height: btBarHeight)
+                    .background(appStatus.ifBluetoothConnected ? .green : .red)
+                    .padding(.bottom, arViewPadding + arViewHeight + btBarHeight)
+                    .ignoresSafeArea(edges: .top)
+                if appStatus.gridProjectionTrigger.rawValue > 0 {
+                    VStack {
+                        Path { path in
+                            for col in 1..<gridSize {
+                                let x = arViewWidth * CGFloat(col) / CGFloat(gridSize)
+                                path.move(to: CGPoint(x: x, y: 0))
+                                path.addLine(to: CGPoint(x: x, y: arViewHeight))
+                            }
+                            for row in 1..<gridSize {
+                                let y = arViewHeight * CGFloat(row) / CGFloat(gridSize)
+                                path.move(to: CGPoint(x: 0, y: y))
+                                path.addLine(to: CGPoint(x: arViewWidth, y: y))
                             }
                         }
-                            .padding(8)
-                            .background(Color.black.opacity(0.6))
-                            .cornerRadius(8)
-                            Spacer()
-                        }
-                        .padding(.bottom, 10)
+                        .stroke(Color.gray, lineWidth: 2)
+                        .opacity(0.5)
                     }
                     .frame(width: arViewWidth, height: arViewHeight)
                     .padding(.bottom, arViewPadding)
                 }
                 
-                if appStatus.rgbdVideoStreaming == .off {
-                    Text(appStatus.ifBluetoothConnected ? "bluetooth device connected" : "bluetooth device disconnected")
-                        .font(.footnote)
-                        .foregroundColor(Color.white)
-                        .frame(width: screenWidth, height: btBarHeight)
-                        .background(appStatus.ifBluetoothConnected ? .green : .red)
-                        .padding(.bottom, arViewPadding + arViewHeight + btBarHeight)
-                        .ignoresSafeArea()
-                    if appStatus.gridProjectionTrigger.rawValue > 0 {
-                        VStack {
-                            Path { path in
-                                for col in 1..<gridSize {
-                                    let x = arViewWidth * CGFloat(col) / CGFloat(gridSize)
-                                    path.move(to: CGPoint(x: x, y: 0))
-                                    path.addLine(to: CGPoint(x: x, y: arViewHeight))
-                                }
-                                for row in 1..<gridSize {
-                                    let y = arViewHeight * CGFloat(row) / CGFloat(gridSize)
-                                    path.move(to: CGPoint(x: 0, y: y))
-                                    path.addLine(to: CGPoint(x: arViewWidth, y: y))
-                                }
-                            }
-                            .stroke(Color.gray, lineWidth: 2)
-                            .opacity(0.5)
-                        }
-                        .frame(width: arViewWidth, height: arViewHeight)
-                        .padding(.bottom, arViewPadding)
-                    }
-                }
                 
-                if appStatus.rgbdVideoStreaming == .usb {
-                    VStack(alignment: .leading, spacing: 15) { // Reduced spacing
-                        // Heading
-                        Text("Streaming Mode: USB")
-                            .font(.title2) // Semi-bold and slightly smaller than title
-                            .fontWeight(.semibold)
-                            .padding(.bottom, 5) // Slight padding after the heading
-                        
-                        // Caption
-                        Text("You can disable streaming in settings")
-                            .font(.caption) // Small caption font
-                            .foregroundColor(.secondary)
-                        
-                        // Instructions
-                        VStack(alignment: .leading, spacing: 8) { // Reduced spacing between instructions
-                            Text("1. Connect cable to computer")
-                            Text("2. Click the button below to")
-                            Text("3. Run python demo-main.py on your computer")
-                        }
-                        .font(.body) // Regular font for instructions
-                        .lineSpacing(4) // Slightly reduced line spacing for compactness
-                        
-                        // Toggle Instruction
-                        Text("Press Toggle to start")
-                            .font(.headline) // Smaller than the main heading
-                            .fontWeight(.semibold)
-                            .padding(.top, 20) // Small padding before this line
-                    }
-                    .frame(width: 400.0, height: 450.0)
-                    .padding()
-                }
                 HStack{
                     Text("Demos recorded: ")
                     Text("\(arViewModel.demosCounter)")
@@ -172,20 +138,31 @@ struct ReadView : View{
                 
                 VStack {
                     Spacer()
-                    HStack {
-                        // Flashlight column (left)
-                        if appStatus.rgbdVideoStreaming == .off {
-                            VStack(spacing: 4) {
-                                Button(action: toggleFlash) {
-                                    Image(systemName: openFlash ? "flashlight.off.circle.fill" : "flashlight.on.circle.fill")
-                                        .resizable()
-                                        .frame(height: 36)
-                                        .frame(width: 36)
+                    HStack(spacing: 20) {
+                        // Delete (left)
+                        VStack(spacing: 4) {
+                            Button(action: {
+                                if(isRecordedOnce){
+                                    showingAlert = true
+                                    self.activeAlert = .first
+                                } else {
+                                    showingAlert = true
+                                    self.activeAlert = .second
                                 }
-                                Text(openFlash ? "Flash off" : "Flash on")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                UIImpactFeedbackGenerator(style: appStatus.hapticFeedbackLevel).impactOccurred()
+                            }){
+                                Image(systemName: "trash.circle.fill")
+                                    .resizable()
+                                    .frame(height: 36)
+                                    .frame(width: 36)
+                                    .foregroundStyle(.red)
                             }
+                            Text("Delete")
+                                .foregroundStyle(.red)
+                                .font(.caption)
+                            Text("last record")
+                                .foregroundStyle(.red)
+                                .font(.caption)
                         }
                         
                         Spacer()
@@ -216,19 +193,45 @@ struct ReadView : View{
 
                         Spacer()
 
-                        // Goal button + caption (right)
-                        if appStatus.rgbdVideoStreaming == .off, (arViewModel.mlManager?.isPointConditioned ?? false) {
+                        // Right side: goal (if applicable) and flashlight
+                        if (arViewModel.mlManager?.isPointConditioned ?? false) {
+                            HStack(spacing: 20) {
+                                VStack(spacing: 4) {
+                                    Button(action: {
+                                        arViewModel.goalTapModeEnabled.toggle()
+                                    }) {
+                                        Image(systemName: arViewModel.goalTapModeEnabled ? "dot.circle.fill" : "target")
+                                            .resizable()
+                                            .frame(height: 36)
+                                            .frame(width: 36)
+                                            .foregroundStyle(arViewModel.goalTapModeEnabled ? Color.green : Color.blue)
+                                    }
+                                    Text("Set goal")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                VStack(spacing: 4) {
+                                    Button(action: toggleFlash) {
+                                        Image(systemName: openFlash ? "flashlight.off.circle.fill" : "flashlight.on.circle.fill")
+                                            .resizable()
+                                            .frame(height: 36)
+                                            .frame(width: 36)
+                                    }
+                                    Text(openFlash ? "Flash off" : "Flash on")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        } else {
                             VStack(spacing: 4) {
-                                Button(action: {
-                                    arViewModel.goalTapModeEnabled.toggle()
-                                }) {
-                                    Image(systemName: arViewModel.goalTapModeEnabled ? "dot.circle.fill" : "target")
+                                Button(action: toggleFlash) {
+                                    Image(systemName: openFlash ? "flashlight.off.circle.fill" : "flashlight.on.circle.fill")
                                         .resizable()
                                         .frame(height: 36)
                                         .frame(width: 36)
-                                        .foregroundStyle(arViewModel.goalTapModeEnabled ? Color.green : Color.blue)
                                 }
-                                Text("Set goal")
+                                Text(openFlash ? "Flash off" : "Flash on")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
@@ -240,70 +243,6 @@ struct ReadView : View{
                 
                 
                 
-                if appStatus.rgbdVideoStreaming == .off{
-                    HStack{
-                        VStack{
-                            // Delete last record button
-                            Button(action: {
-                                if(isRecordedOnce){
-                                    showingAlert = true
-                                    self.activeAlert = .first
-                                } else {
-                                    showingAlert = true
-                                    self.activeAlert = .second
-                                }
-                                UIImpactFeedbackGenerator(style: appStatus.hapticFeedbackLevel).impactOccurred()
-                            }){
-                                Image(systemName: "trash.circle.fill")
-                                    .resizable()
-                                    .frame(height: 40)
-                                    .frame(width: 40)
-                                    .foregroundStyle(.red)
-                                
-                            }
-                            .padding(.trailing, 250.0)
-                            Text("Delete")
-                                .foregroundStyle(.red)
-                                .font(.caption)
-                                .padding(.trailing, 250)
-                            Text("last record")
-                                .foregroundStyle(.red)
-                                .font(.caption)
-                                .padding(.trailing, 250)
-                        }
-                    }
-//                    .frame(width: screenWidth / 2.0, alignment: .leading)
-                    .padding(.top, 0.66 * arViewHeight + 0.32 * screenHeight)
-                    
-                    // Flash light control button
-                    VStack{
-                        Button(action: toggleFlash){
-                            if(openFlash){
-                                VStack{
-                                    Image(systemName: "flashlight.off.circle.fill")
-                                        .resizable()
-                                        .frame(height: 40)
-                                        .frame(width: 40)
-                                    Text("Flash light off")
-                                        .foregroundStyle(.accent)
-                                        .font(.caption)
-                                }
-                            }else{
-                                VStack{
-                                    Image(systemName: "flashlight.on.circle.fill")
-                                        .resizable()
-                                        .frame(height: 40)
-                                        .frame(width: 40)
-                                    Text("Flash light on")
-                                        .foregroundStyle(.accent)
-                                        .font(.caption)
-                                }
-                            }
-                        }
-                    }
-                    .padding(.leading, 240)
-                    .padding(.top, 0.8 * arViewHeight + 0.2 * screenHeight)
-                }
                 
             }
             .frame(width: 10.0, height: 10.0)

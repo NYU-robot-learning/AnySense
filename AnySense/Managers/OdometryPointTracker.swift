@@ -64,7 +64,7 @@ class OdometryPointTracker: ObservableObject {
     let depthOffset: Float = 0.05  // DEPTH_OFFSET from Python (public for validation)
     
     init() {
-        print("OdometryPointTracker initialized (Python-compatible)")
+        // Initialize odometry point tracker
     }
     
     // MARK: - Public Interface (matching Python workflow)
@@ -78,7 +78,7 @@ class OdometryPointTracker: ObservableObject {
         depthMap: CVPixelBuffer?
     ) -> Bool {
         
-        print("Starting odometry tracking at screen point: (\(screenPoint.x), \(screenPoint.y))")
+        // Starting odometry tracking
         
         // Store initial pose (equivalent to self.start_pose and self.start_pose_matrix)
         self.startPose = arFrame.camera.transform
@@ -97,7 +97,6 @@ class OdometryPointTracker: ObservableObject {
             session: session,
             depthMap: depthMap
         ) else {
-            print("Failed to convert screen point to 3D")
             return false
         }
         
@@ -113,9 +112,6 @@ class OdometryPointTracker: ObservableObject {
         )
         
         self.currentResult = initialResult
-        
-        print("Started tracking object at normalized position: [\(objectPosition.x), \(objectPosition.y), \(objectPosition.z)]")
-        print("Initial 2D point: [\(initialResult.normalized2DPoint.x), \(initialResult.normalized2DPoint.y)]")
         
         return true
     }
@@ -145,8 +141,6 @@ class OdometryPointTracker: ObservableObject {
         
         self.currentResult = result
         
-        print("Updated tracking: 2D=[\(String(format: "%.3f", result.normalized2DPoint.x)), \(String(format: "%.3f", result.normalized2DPoint.y))], 3D=[\(String(format: "%.3f", result.world3DPoint.x)), \(String(format: "%.3f", result.world3DPoint.y)), \(String(format: "%.3f", result.world3DPoint.z))]")
-        
         return result
     }
     
@@ -156,7 +150,6 @@ class OdometryPointTracker: ObservableObject {
         trackingState = .idle
         currentResult = nil
         trackingHistory.removeAll()
-        print("Odometry tracking reset")
     }
     
     /// Get current goal point for model (2D or 3D based on goal_dim)
@@ -179,7 +172,6 @@ class OdometryPointTracker: ObservableObject {
         if !enabled {
             trackingState = .idle
         }
-        print("Odometry tracking \(enabled ? "enabled" : "disabled")")
     }
     
     // MARK: - Private Implementation (matching Python logic)
@@ -193,7 +185,7 @@ class OdometryPointTracker: ObservableObject {
         depthMap: CVPixelBuffer?
     ) -> simd_float3? {
         
-        print("🎯 Converting screen point (\(screenPoint.x), \(screenPoint.y)) to 3D")
+        // Converting screen point to 3D
         
         // Normalize screen coordinates to [0,1] (matching Python: p2d[0] / 256, p2d[1] / 256)
         let normalizedX = screenPoint.x / view.bounds.width
@@ -201,7 +193,6 @@ class OdometryPointTracker: ObservableObject {
         
         // Strategy 1: Try depth map sampling (highest accuracy)
         if let depthBuffer = depthMap {
-            print("📡 Attempting depth map sampling...")
             let sampledDepth = sampleDepthMap(
                 depthBuffer: depthBuffer,
                 normalizedX: normalizedX,
@@ -210,17 +201,11 @@ class OdometryPointTracker: ObservableObject {
             
             if sampledDepth > 0.1 && sampledDepth < 10.0 {  // Valid depth range
                 let finalDepth = sampledDepth + depthOffset
-                print("✅ Depth map success: \(String(format: "%.3f", finalDepth))m")
                 return simd_float3(Float(normalizedX), Float(normalizedY), finalDepth)
-            } else {
-                print("⚠️ Depth map returned invalid depth: \(sampledDepth)m")
             }
-        } else {
-            print("⚠️ No depth map provided")
         }
         
         // Strategy 2: ARKit raycast hit testing (reliable fallback)
-        print("🔍 Attempting ARKit raycast...")
         let normalizedPoint = CGPoint(x: normalizedX, y: normalizedY)
         
         // Create raycast query for existing planes or surfaces
@@ -234,16 +219,12 @@ class OdometryPointTracker: ObservableObject {
             
             if distance > 0.1 && distance < 10.0 {
                 let finalDepth = distance + depthOffset
-                print("✅ Raycast success: \(String(format: "%.3f", finalDepth))m")
                 return simd_float3(Float(normalizedX), Float(normalizedY), finalDepth)
             }
         }
-        print("⚠️ Raycast failed - no surfaces detected")
         
         // Strategy 3: Simple fixed distance fallback
-        print("📊 Using fixed distance estimation...")
         let fixedDepth: Float = 1.0 + depthOffset  // 1 meter default
-        print("📊 Fixed depth: \(String(format: "%.3f", fixedDepth))m")
         
         return simd_float3(Float(normalizedX), Float(normalizedY), fixedDepth)
     }

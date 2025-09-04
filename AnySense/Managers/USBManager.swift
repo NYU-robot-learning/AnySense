@@ -62,24 +62,21 @@ class USBManager {
             listener?.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
-                    print("Server ready and listening on port 1337")
+                    break
                 case .failed(let error):
-                    print("Listener failed with error: \(error)")
+                    break
                 default:
                     break
                 }
             }
 
             listener?.newConnectionHandler = { [weak self] connection in
-                print("Connection received")
                 self?.handleConnection(connection: connection)
-
-//                self?.sendData(connection: connection, message: "Hello from iPhone!")
             }
 
             listener?.start(queue: .main)
         } catch {
-            print("Failed to start listener: \(error)")
+            // Failed to start listener
         }
     }
     
@@ -87,14 +84,12 @@ class USBManager {
         // Cancel the listener if it exists
         if let listener = listener {
             listener.cancel()
-            print("Listener cancelled")
         }
         listener = nil
 
         // Cancel the active connection if it exists
         if let connection = activeConnection {
             connection.cancel()
-            print("Connection cancelled")
         }
         activeConnection = nil
     }
@@ -114,7 +109,6 @@ class USBManager {
         compressedConfData: Data? = nil
     ) {
         guard let activeConnection = activeConnection else {
-            print("No active connection. Cannot send data.")
             return
         }
         var messageBody = record3dHeaderData + intrinsicMatData + poseData + rgbImageData + jointActionsData
@@ -130,22 +124,11 @@ class USBManager {
         
         let completeMessage = ptHeaderData + messageBody
         
-        print("USB Streaming Summary:")
-        print("  - Total message size: \(completeMessage.count) bytes")
-        print("  - RGB size: \(rgbImageData.count) bytes")
-        print("  - Joint actions: 28 bytes (7 floats)")
-        if let depthData = compressedDepthData {
-            print("  - Depth size: \(depthData.count) bytes (compressed)")
-        }
-        if let confData = compressedConfData {
-            print("  - Confidence size: \(confData.count) bytes (compressed)")
-        }
+        print("USB data: \(completeMessage.count) bytes total")
         
         activeConnection.send(content:completeMessage, completion: .contentProcessed {error in
             if let error = error {
-                print("❌ Failed to send USB data: \(error)")
-            } else {
-                print("✅ USB data sent successfully to computer")
+                // USB send failed
             }
         })
     }
@@ -154,9 +137,7 @@ class USBManager {
         let data = message.data(using: .utf8)!
         connection.send(content: data, completion: .contentProcessed { error in
             if let error = error {
-                print("Failed to send data: \(error)")
-            } else {
-                print("Data sent successfully")
+                // Data send failed
             }
         })
     }
@@ -164,7 +145,6 @@ class USBManager {
     func compressData(from pixelBuffer: CVPixelBuffer, isDepth: Bool) -> Data? {
         // Extract depth data
         guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else {
-            print("Failed to access depth buffer base address")
             return nil
         }
         
@@ -192,7 +172,6 @@ class USBManager {
         )
 
         guard compressedSize > 0 else {
-            print("Failed to compress depth map")
             return nil
         }
 
@@ -203,7 +182,6 @@ class USBManager {
     // MARK: - Joint Actions sender
     func sendJointActions(_ jointActionsData: Data) {
         guard let activeConnection = activeConnection else {
-            print("No active connection. Cannot send joint actions.")
             return
         }
         var header = PeerTalkHeader(a: 2, b: 1, c: 1, body_size: UInt32(jointActionsData.count).bigEndian)
@@ -211,9 +189,7 @@ class USBManager {
         let message = headerData + jointActionsData
         activeConnection.send(content: message, completion: .contentProcessed { error in
             if let error = error {
-                print("❌ Failed to send joint actions: \(error)")
-            } else {
-                print("✅ Joint actions sent (\(jointActionsData.count) bytes)")
+                // Joint actions send failed
             }
         })
     }
