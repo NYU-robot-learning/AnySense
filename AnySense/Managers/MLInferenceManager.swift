@@ -376,19 +376,9 @@ class MLInferenceManager: ObservableObject {
         self.arViewContainer = container
     }
     
-    // MARK: - USB Streaming Support
-    private func sendJointActionsToUSB(_ jointActions: [Float]) {
-        // Only send to USB if we're actually in USB streaming mode
-        // We can check this by seeing if the ARViewContainer has USB streaming active
-        arViewContainer?.sendJointActionsUSB(jointActions)
-    }
-    
-    
-    
     // MARK: - Inference Methods (Using existing frame processing patterns)
     func performInference(on pixelBuffer: CVPixelBuffer, arFrame: ARFrame?, timestamp: CFTimeInterval = CACurrentMediaTime()) {
-        // Update odometry tracking SYNCHRONOUSLY if AR frame is provided
-        // This ensures the updated goal point is available for model input preparation
+        // Update odometry tracking to have consistent goal point for model input preparation
         if let frame = arFrame {
             updateOdometryTracking(arFrame: frame)
         }
@@ -741,7 +731,7 @@ class MLInferenceManager: ObservableObject {
                     arManager.updatePoseFromMLOutput(jointPositions, timestamp: self?.lastInferenceTime ?? CACurrentMediaTime())
                 }
                 
-                // Send joint actions to USB if streaming is enabled (transform to robot frame)
+                // Joint actions are automatically sent via USB stream (transform to robot frame)
                 if jointPositions.count >= 7 {
                     let src = Array(jointPositions.prefix(7))
                     if self?.enableTransformDebug == true {
@@ -754,7 +744,7 @@ class MLInferenceManager: ObservableObject {
                         robot[6] = max(0.0, min(1.0, robot[6]))
                     }
                     print("Robot actions: [\(robot.map { String(format: "%.3f", $0) }.joined(separator: ", "))]")
-                    self?.sendJointActionsToUSB(robot)
+                    // Joint actions are now sent embedded in the main USB stream
                 }
             }
             
@@ -790,7 +780,7 @@ class MLInferenceManager: ObservableObject {
                     arManager.updatePoseFromMLOutput(jointPositions, timestamp: self?.lastInferenceTime ?? CACurrentMediaTime())
                 }
                 
-                // Send joint actions to USB if streaming is enabled (transform to robot frame)
+                // Joint actions are automatically sent via USB stream (transform to robot frame)
                 if jointPositions.count >= 7 {
                     let src = Array(jointPositions.prefix(7))
                     var robot = ActionTransformUtils.toRobotActions(src)
@@ -798,7 +788,7 @@ class MLInferenceManager: ObservableObject {
                         robot[6] = max(0.0, min(1.0, robot[6]))
                     }
                     print("Robot actions: [\(robot.map { String(format: "%.3f", $0) }.joined(separator: ", "))]")
-                    self?.sendJointActionsToUSB(robot)
+                    // Joint actions are now sent embedded in the main USB stream
                 }
             }
             

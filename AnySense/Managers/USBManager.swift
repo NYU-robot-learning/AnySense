@@ -29,7 +29,7 @@ struct Record3DHeader {
     var confidenceMapSize: UInt32
     var miscSize: UInt32
     var deviceType: UInt32
-    // jointActions are always 28 bytes (7 floats), sent separately in message body
+    // jointActions are always 28 bytes (7 floats), embedded in message body after RGB data
 }
 
 struct IntrinsicMatrixCoeffs {
@@ -179,18 +179,4 @@ class USBManager {
         return Data(bytes: compressedBuffer, count: compressedSize)
     }
     
-    // MARK: - Joint Actions sender
-    func sendJointActions(_ jointActionsData: Data) {
-        guard let activeConnection = activeConnection else {
-            return
-        }
-        var header = PeerTalkHeader(a: 2, b: 1, c: 1, body_size: UInt32(jointActionsData.count).bigEndian)
-        let headerData = Data(bytes: &header, count: MemoryLayout<PeerTalkHeader>.size)
-        let message = headerData + jointActionsData
-        activeConnection.send(content: message, completion: .contentProcessed { error in
-            if let error = error {
-                // Joint actions send failed
-            }
-        })
-    }
 }

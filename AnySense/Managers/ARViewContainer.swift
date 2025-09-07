@@ -138,14 +138,6 @@ class ARViewModel: ObservableObject{
         return session
     }
     
-    func sendJointActionsUSB(_ jointActions: [Float]) {
-        var actions = Array(jointActions.prefix(7))
-        if actions.count < 7 {
-            actions.append(contentsOf: Array(repeating: 0.0, count: 7 - actions.count))
-        }
-        let data = actions.withUnsafeBytes { Data($0) }
-        usbManager.sendJointActions(data)
-    }
     private var poseFileHandle: FileHandle?
     
     // Control the destination of rgb images directory and depth images directory
