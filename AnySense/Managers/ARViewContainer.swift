@@ -72,12 +72,30 @@ struct ARViewContainer: UIViewRepresentable {
         @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
             guard recognizer.state == .ended, let arView = recognizer.view as? ARView else { return }
             let location = recognizer.location(in: arView)
-            // Convert UIKit tap to a lightweight UIView for ML manager API
-            let dummyView = UIView(frame: arView.bounds)
-            
-            // Access ML manager via a shared ARViewModel if available
-            // Here, we post a notification with tap info; the view model can subscribe and start odometry
-            NotificationCenter.default.post(name: NSNotification.Name("ARViewTapForGoal"), object: nil, userInfo: ["location": location, "bounds": arView.bounds])
+            // Prefer RealityKit raycast to get an accurate world point
+            if let hit = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any).first {
+                let t = hit.worldTransform
+                let world = simd_float3(t.columns.3.x, t.columns.3.y, t.columns.3.z)
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("ARViewTapForGoal"),
+                    object: nil,
+                    userInfo: [
+                        "worldPoint": world,
+                        "location": location,
+                        "bounds": arView.bounds
+                    ]
+                )
+                return
+            }
+            // Fallback: still notify with screen info (no hit yet)
+            NotificationCenter.default.post(
+                name: NSNotification.Name("ARViewTapForGoal"),
+                object: nil,
+                userInfo: [
+                    "location": location,
+                    "bounds": arView.bounds
+                ]
+            )
         }
     }
 }
@@ -207,22 +225,29 @@ class ARViewModel: ObservableObject{
                 print("Goal tap ignored - conditions not met")
                 return 
             }
+            // Prefer direct world point from raycast if provided
+            if let world = notif.userInfo?["worldPoint"] as? simd_float3 {
+                print("Using raycast world point: \(world)")
+                ml.setGoalPoint(world)
+                self.arVisualizationManager.setTargetPose(world)
+                self.goalTapModeEnabled = false
+                return
+            }
+            // Otherwise, fall back to computing from screen point
             guard let location = notif.userInfo?["location"] as? CGPoint,
                   let bounds = notif.userInfo?["bounds"] as? CGRect else { 
                 print(" Missing location or bounds data")
                 return 
             }
             print(" Tap location: \(location), bounds: \(bounds)")
-            let dummyView = UIView(frame: bounds)
             if let frame = self.session.currentFrame {
                 let depth = self.depthStatus.isDepthAvailable ? (frame.sceneDepth?.depthMap) : nil
                 print("Depth available: \(depth != nil)")
-                if let world = self.getWorldPositionFromTap(location, frame: frame) {
+                if let world = self.getWorldPositionFromTap(location, frame: frame, viewBounds: bounds) {
                     print(" World position calculated: \(world)")
                     ml.setGoalPoint(world)
                     self.arVisualizationManager.setTargetPose(world)
                     print(" Goal point set and visualization updated")
-                    // Exit goal-tap mode after a successful set
                     self.goalTapModeEnabled = false
                 } else {
                     print(" Failed to get world position from tap")
@@ -232,13 +257,13 @@ class ARViewModel: ObservableObject{
     }
     
     // Simple, direct approach: Use ARKit's built-in methods + LiDAR depth sampling
-    private func getWorldPositionFromTap(_ tapPoint: CGPoint, frame: ARFrame) -> simd_float3? {
+    private func getWorldPositionFromTap(_ tapPoint: CGPoint, frame: ARFrame, viewBounds: CGRect) -> simd_float3? {
         print("getWorldPositionFromTap called with: \(tapPoint)")
         
         // 1) First try LiDAR depth if available (most accurate)
         if let sceneDepth = frame.sceneDepth {
             print(" Trying LiDAR depth method")
-            if let worldPos = getWorldPositionFromDepth(tapPoint, frame: frame, sceneDepth: sceneDepth) {
+            if let worldPos = getWorldPositionFromDepth(tapPoint, frame: frame, sceneDepth: sceneDepth, viewBounds: viewBounds) {
                 print(" LiDAR depth success: \(worldPos)")
                 return worldPos
             } else {
@@ -267,55 +292,98 @@ class ARViewModel: ObservableObject{
             return worldPos
         }
         
-        // 3) Final fallback: Use fixed depth estimate (1 meter forward)
+        // 3) Final fallback: Use fixed depth estimate with displayTransform and original intrinsics
         print("Trying fixed depth fallback (1m)")
         let estimatedDepth: Float = 1.0
+        
+        // Get camera parameters
         let camera = frame.camera
         let cameraTransform = camera.transform
-        
-        // Convert screen point to normalized coordinates (-1 to 1)
-        let normalizedX = (2.0 * Float(tapPoint.x) / Float(UIScreen.main.bounds.width)) - 1.0
-        let normalizedY = 1.0 - (2.0 * Float(tapPoint.y) / Float(UIScreen.main.bounds.height))
-        
-        // Get camera direction through the tap point
         let intrinsics = camera.intrinsics
-        let fx = intrinsics[0][0]
-        let fy = intrinsics[1][1]
-        let cx = intrinsics[2][0]
-        let cy = intrinsics[2][1]
+        let imageResolution = frame.camera.imageResolution
+        let imageWidth = Float(imageResolution.width)
+        let imageHeight = Float(imageResolution.height)
         
-        let cameraX = (Float(tapPoint.x) - cx) / fx
-        let cameraY = (Float(tapPoint.y) - cy) / fy
-        let cameraZ = -5.0  // Forward in camera space
+        let fx = intrinsics.columns.0.x
+        let fy = intrinsics.columns.1.y
+        let cx = intrinsics.columns.2.x
+        let cy = intrinsics.columns.2.y
         
-        // Normalize the direction vector
-        let direction = simd_normalize(simd_float3(cameraX, cameraY, Float(cameraZ)))
+        // Map tap point from view coords → normalized view → normalized image using displayTransform
+        let viewSize = viewBounds.size
+        // Detect current device orientation
+        let currentOrientation: UIInterfaceOrientation
+        if #available(iOS 13.0, *) {
+            currentOrientation = UIApplication.shared.windows.first?.windowScene?.interfaceOrientation ?? .portrait
+        } else {
+            currentOrientation = UIApplication.shared.statusBarOrientation
+        }
+        let viewToImage = frame.displayTransform(for: currentOrientation, viewportSize: viewSize).inverted()
+        var normView = CGPoint(x: tapPoint.x / viewSize.width, y: tapPoint.y / viewSize.height)
+        let normImage = normView.applying(viewToImage)
         
-        // Scale by estimated depth
-        let cameraSpacePoint = direction * estimatedDepth
+        // Convert normalized image coords to pixel coords in captured image space
+        let u_img = Float(normImage.x) * imageWidth
+        let v_img = Float(normImage.y) * imageHeight
         
-        // Transform to world space
-        let worldPoint = simd_make_float3(cameraTransform * simd_make_float4(cameraSpacePoint, 1.0))
+        print("=== COORDINATE DEBUG ===")
+        print("Tap point: \(tapPoint)")
+        print("View bounds: \(viewBounds)")
+        print("Camera image resolution: \(imageResolution)")
+        print("Orientation: \(currentOrientation)")
+        print("Normalized view: \(normView) → normalized image: \(normImage)")
+        print("Pixel coords (u,v): (\(u_img), \(v_img))")
+        print("Intrinsics - fx: \(fx), fy: \(fy), cx: \(cx), cy: \(cy)")
         
-        print("Fixed depth success: \(worldPoint)")
-        return worldPoint
+        // Convert pixel coords + fixed depth to camera space
+        let cameraX = (u_img - cx) / fx * estimatedDepth
+        let cameraY = -((v_img - cy) / fy) * estimatedDepth  // Flip Y to fix top/bottom inversion
+        let cameraZ = -estimatedDepth  // Negative Z in camera space
+        
+        print("Camera space point - X: \(cameraX), Y: \(cameraY), Z: \(cameraZ)")
+        
+        // Transform from camera space to world space
+        let cameraPoint = simd_float4(cameraX, cameraY, cameraZ, 1.0)
+        let worldPoint = simd_mul(cameraTransform, cameraPoint)
+        
+        print("Fixed depth success: \(simd_float3(worldPoint.x, worldPoint.y, worldPoint.z))")
+        return simd_float3(worldPoint.x, worldPoint.y, worldPoint.z)
     }
     
-    private func getWorldPositionFromDepth(_ screenPoint: CGPoint, frame: ARFrame, sceneDepth: ARDepthData) -> simd_float3? {
+    private func getWorldPositionFromDepth(_ screenPoint: CGPoint, frame: ARFrame, sceneDepth: ARDepthData, viewBounds: CGRect) -> simd_float3? {
         let depthMap = sceneDepth.depthMap
         let dmWidth = CVPixelBufferGetWidth(depthMap)
         let dmHeight = CVPixelBufferGetHeight(depthMap)
         
-        // Convert screen point to depth map coordinates
-        let viewSize = UIScreen.main.bounds.size
-        let viewToImage = frame.displayTransform(for: .portrait, viewportSize: viewSize).inverted()
-        var norm = CGPoint(x: screenPoint.x / viewSize.width, y: screenPoint.y / viewSize.height)
-        norm = norm.applying(viewToImage)
+        print("Depth map size: \(dmWidth) x \(dmHeight)")
         
-        let x = Int(round(norm.x * CGFloat(dmWidth)))
-        let y = Int(round((1 - norm.y) * CGFloat(dmHeight)))
+        // Convert screen point to image/depth coordinates using ARKit display transform
+        let viewSize = viewBounds.size
+        print("ARView bounds: \(viewBounds)")
+        print("View size: \(viewSize)")
         
-        guard x >= 0, x < dmWidth, y >= 0, y < dmHeight else { return nil }
+        let currentOrientation: UIInterfaceOrientation
+        if #available(iOS 13.0, *) {
+            currentOrientation = UIApplication.shared.windows.first?.windowScene?.interfaceOrientation ?? .portrait
+        } else {
+            currentOrientation = UIApplication.shared.statusBarOrientation
+        }
+        print("Current orientation: \(currentOrientation)")
+        
+        let viewToImage = frame.displayTransform(for: currentOrientation, viewportSize: viewSize).inverted()
+        let normView = CGPoint(x: screenPoint.x / viewSize.width, y: screenPoint.y / viewSize.height)
+        let normImage = normView.applying(viewToImage)
+        print("Normalized view: \(normView) → normalized image: \(normImage)")
+        
+        // Depth map indices from normalized image coords
+        let x = Int(round(normImage.x * CGFloat(dmWidth)))
+        let y = Int(round(normImage.y * CGFloat(dmHeight)))
+        print("Depth map coordinates: (\(x), \(y)) of (\(dmWidth), \(dmHeight))")
+        
+        guard x >= 0, x < dmWidth, y >= 0, y < dmHeight else { 
+            print("Depth coordinates out of bounds: x=\(x), y=\(y), bounds=(\(dmWidth), \(dmHeight))")
+            return nil 
+        }
         
         CVPixelBufferLockBaseAddress(depthMap, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(depthMap, .readOnly) }
@@ -323,20 +391,31 @@ class ARViewModel: ObservableObject{
         let base = CVPixelBufferGetBaseAddress(depthMap)!.assumingMemoryBound(to: Float.self)
         let rowStride = CVPixelBufferGetBytesPerRow(depthMap) / MemoryLayout<Float>.size
         let depth = base[y * rowStride + x]
+        print("Raw depth value: \(depth)")
         
-        guard depth.isFinite && depth > 0 else { return nil }
+        guard depth.isFinite && depth > 0 else { 
+            print("Invalid depth: isFinite=\(depth.isFinite), value=\(depth)")
+            return nil 
+        }
         
-        // Convert screen point + depth to world position
+        // Convert image pixel coords + depth to world position
         let cameraIntrinsics = frame.camera.intrinsics
         let cameraTransform = frame.camera.transform
+        let imageResolution = frame.camera.imageResolution
+        let imgW = Float(imageResolution.width)
+        let imgH = Float(imageResolution.height)
+        let u_img = Float(normImage.x) * imgW
+        let v_img = Float(normImage.y) * imgH
+        
+        print("Image pixel coords (u,v): (\(u_img), \(v_img)) of (\(imgW), \(imgH))")
         
         let fx = cameraIntrinsics.columns.0.x
         let fy = cameraIntrinsics.columns.1.y
         let cx = cameraIntrinsics.columns.2.x
         let cy = cameraIntrinsics.columns.2.y
         
-        let cameraX = (Float(screenPoint.x) - cx) / fx * depth
-        let cameraY = (Float(screenPoint.y) - cy) / fy * depth
+        let cameraX = (u_img - cx) / fx * depth
+        let cameraY = -((v_img - cy) / fy) * depth  // Flip Y to fix top/bottom inversion
         let cameraZ = -depth
         
         let cameraPoint = simd_float4(cameraX, cameraY, cameraZ, 1.0)
@@ -457,9 +536,11 @@ class ARViewModel: ObservableObject{
         } else {
             depthStatus.setUnavailable()
         }
-        configuration.planeDetection = []
-        configuration.environmentTexturing = .none  // No environment texturing
-        configuration.sceneReconstruction = []  // No scene reconstruction
+        configuration.planeDetection = [.horizontal, .vertical]
+        if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
+            configuration.sceneReconstruction = .mesh
+        }
+        configuration.environmentTexturing = .none
         configuration.isAutoFocusEnabled = false
         
         // Run the session with the configuration
