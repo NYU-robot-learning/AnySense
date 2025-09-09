@@ -185,7 +185,6 @@ class MLInferenceManager: ObservableObject {
     
     func clearGoalPoint() {
         currentGoalPoint = nil
-        odometryTracker.resetTracking()
     }
     
     // MARK: - Odometry Integration Methods
@@ -247,14 +246,8 @@ class MLInferenceManager: ObservableObject {
             guard let session = getARSession(), let frame = session.currentFrame else {
                 return nil
             }
-            // Prefer odometry-tracked world point; else use static world point if set
-            let worldPoint: simd_float3?
-            if enableOdometryTracking, let result = odometryTracker.currentResult {
-                worldPoint = result.world3DPoint
-            } else {
-                worldPoint = currentGoalPoint
-            }
-            guard let p_w = worldPoint else { return nil }
+            // Use the world-locked goal point (ARKit keeps it fixed in world space)
+            guard let p_w = currentGoalPoint else { return nil }
             // World (ARKit) → Camera
             let T_wc = frame.camera.transform
             let T_cw = simd_inverse(T_wc)
@@ -262,106 +255,35 @@ class MLInferenceManager: ObservableObject {
             // labels.json mapping from camera frame
             return [-p_c4.x, p_c4.z, p_c4.y]
         }
-        // 2D goals: use odometry normalized 2D if available; else fallback to center
-        if enableOdometryTracking, let result = odometryTracker.currentResult {
-            return [Float(result.normalized2DPoint.x), Float(result.normalized2DPoint.y)]
+        // 2D goals: project world-locked goal point to current camera view
+        if let p_w = currentGoalPoint, let session = getARSession(), let frame = session.currentFrame {
+            // Project world point to current camera view
+            let T_wc = frame.camera.transform
+            let T_cw = simd_inverse(T_wc)
+            let p_c4 = simd_mul(T_cw, simd_float4(p_w.x, p_w.y, p_w.z, 1.0))
+            let p_c = simd_float3(p_c4.x, p_c4.y, p_c4.z)
+            
+            // Project to normalized screen coordinates [0,1]
+            let intrinsics = frame.camera.intrinsics
+            let fx = intrinsics.columns.0.x
+            let fy = intrinsics.columns.1.y
+            let cx = intrinsics.columns.2.x
+            let cy = intrinsics.columns.2.y
+            
+            let screenX = (p_c.x * fx / (-p_c.z)) + cx
+            let screenY = (p_c.y * fy / (-p_c.z)) + cy
+            
+            let imageWidth = frame.camera.imageResolution.width
+            let imageHeight = frame.camera.imageResolution.height
+            
+            let normalizedX = screenX / Float(imageWidth)
+            let normalizedY = screenY / Float(imageHeight)
+            
+            // Clamp to [0,1] range
+            return [max(0, min(1, normalizedX)), max(0, min(1, normalizedY))]
         } else {
-            return [0.5, 0.5]
+            return [0.5, 0.5] // Center fallback
         }
-    }
-    
-    func convertScreenToWorld(_ screenPoint: CGPoint, in view: UIView, arSession: ARSession? = nil, depthMap: CVPixelBuffer? = nil) -> simd_float3? {
-        guard let session = arSession ?? getARSession(),
-              let currentFrame = session.currentFrame else {
-            return nil
-        }
-        
-        // Method 1: Try hit testing first (most accurate for surfaces)
-        let normalizedPoint = CGPoint(
-            x: screenPoint.x / view.bounds.width,
-            y: screenPoint.y / view.bounds.height
-        )
-        
-        // Create hit test query for existing planes or surfaces
-        let query = currentFrame.raycastQuery(from: normalizedPoint, allowing: .existingPlaneGeometry, alignment: .any)
-        let results = session.raycast(query)
-        if let result = results.first {
-            let worldTransform = result.worldTransform
-            return simd_float3(worldTransform.columns.3.x, worldTransform.columns.3.y, worldTransform.columns.3.z)
-        }
-        
-        // Method 2: Use depth map if available
-        if let depth = depthMap ?? currentFrame.sceneDepth?.depthMap {
-            if let worldPoint = convertScreenToWorldUsingDepth(screenPoint, in: view, frame: currentFrame, depthMap: depth) {
-                return worldPoint
-            }
-        }
-        
-        // Method 3: Fallback to estimated depth
-        return convertScreenToWorldEstimated(screenPoint, in: view, frame: currentFrame, estimatedDepth: 1.0)
-    }
-    
-    private func convertScreenToWorldUsingDepth(_ screenPoint: CGPoint, in view: UIView, frame: ARFrame, depthMap: CVPixelBuffer) -> simd_float3? {
-        // Convert screen point to depth map coordinates
-        let depthWidth = CVPixelBufferGetWidth(depthMap)
-        let depthHeight = CVPixelBufferGetHeight(depthMap)
-        
-        let normalizedX = screenPoint.x / view.bounds.width
-        let normalizedY = screenPoint.y / view.bounds.height
-        
-        let depthX = Int(normalizedX * CGFloat(depthWidth))
-        let depthY = Int(normalizedY * CGFloat(depthHeight))
-        
-        // Ensure coordinates are within bounds
-        guard depthX >= 0, depthX < depthWidth, depthY >= 0, depthY < depthHeight else {
-            return nil
-        }
-        
-        // Read depth value
-        CVPixelBufferLockBaseAddress(depthMap, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(depthMap, .readOnly) }
-        
-        guard let baseAddress = CVPixelBufferGetBaseAddress(depthMap) else { return nil }
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(depthMap)
-        let depthPointer = baseAddress.assumingMemoryBound(to: Float32.self)
-        
-        let pixelOffset = depthY * (bytesPerRow / MemoryLayout<Float32>.stride) + depthX
-        let depth = depthPointer[pixelOffset]
-        
-        guard depth > 0.1 && depth < 10.0 else { // Valid depth range
-            return nil
-        }
-        
-        return convertScreenToWorldEstimated(screenPoint, in: view, frame: frame, estimatedDepth: depth)
-    }
-    
-    private func convertScreenToWorldEstimated(_ screenPoint: CGPoint, in view: UIView, frame: ARFrame, estimatedDepth: Float) -> simd_float3? {
-        let cameraIntrinsics = frame.camera.intrinsics
-        let cameraTransform = frame.camera.transform
-        
-        // Convert screen coordinates to normalized coordinates
-        let normalizedX = (screenPoint.x / view.bounds.width) * 2.0 - 1.0
-        let normalizedY = 1.0 - (screenPoint.y / view.bounds.height) * 2.0
-        
-        // Convert to camera space using inverse intrinsics
-        let fx = cameraIntrinsics.columns.0.x
-        let fy = cameraIntrinsics.columns.1.y
-        let cx = cameraIntrinsics.columns.2.x
-        let cy = cameraIntrinsics.columns.2.y
-        
-        let imageWidth = Float(view.bounds.width)
-        let imageHeight = Float(view.bounds.height)
-        
-        let cameraX = (Float(screenPoint.x) - cx) / fx * estimatedDepth
-        let cameraY = (Float(screenPoint.y) - cy) / fy * estimatedDepth
-        let cameraZ = -estimatedDepth // Negative Z in camera coordinates
-        
-        let cameraPoint = simd_float4(cameraX, cameraY, cameraZ, 1.0)
-        
-        // Transform to world coordinates
-        let worldPoint = simd_mul(cameraTransform, cameraPoint)
-        
-        return simd_float3(worldPoint.x, worldPoint.y, worldPoint.z)
     }
     
     // MARK: - AR Session Access
@@ -727,7 +649,7 @@ class MLInferenceManager: ObservableObject {
                 
                 // Ensure visualization is ready and feed pose
                 if let arManager = self?.arVisualizationManager, jointPositions.count >= 6 {
-                    arManager.prepareVisualizationIfNeeded()
+                    arManager.ensureVisualizationReady()
                     arManager.updatePoseFromMLOutput(jointPositions, timestamp: self?.lastInferenceTime ?? CACurrentMediaTime())
                 }
                 
@@ -776,7 +698,7 @@ class MLInferenceManager: ObservableObject {
                 
                 // Ensure visualization is ready and feed pose
                 if let arManager = self?.arVisualizationManager, jointPositions.count >= 6 {
-                    arManager.prepareVisualizationIfNeeded()
+                    arManager.ensureVisualizationReady()
                     arManager.updatePoseFromMLOutput(jointPositions, timestamp: self?.lastInferenceTime ?? CACurrentMediaTime())
                 }
                 

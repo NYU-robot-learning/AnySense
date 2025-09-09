@@ -53,6 +53,7 @@ class ARVisualizationManager: ObservableObject {
     // Target/device pose state for point-conditioned flows
     private var targetPose: SIMD3<Float>?
     private var actualDevicePose: SIMD3<Float> = SIMD3<Float>(0, 0, 0)
+    private var goalPointEntity: ModelEntity?
     
     // Movement tracking
     private var worldOrigin: SIMD3<Float> = SIMD3<Float>(0, 0, 0)
@@ -148,6 +149,10 @@ class ARVisualizationManager: ObservableObject {
         currentWorldPosition = SIMD3<Float>(0, 0, 0)
         previousWorldPosition = nil
         
+        // Remove goal point visualization
+        goalPointEntity?.removeFromParent()
+        goalPointEntity = nil
+        
         worldOriginAnchor?.removeFromParent()
         worldOriginAnchor = nil
     }
@@ -165,6 +170,10 @@ class ARVisualizationManager: ObservableObject {
     }
     
     private func clearAllVisualization() {
+        // Remove goal point visualization
+        goalPointEntity?.removeFromParent()
+        goalPointEntity = nil
+        
         // Remove all movement arrows
         for arrow in movementArrows {
             arrow.anchor.removeFromParent()
@@ -172,12 +181,12 @@ class ARVisualizationManager: ObservableObject {
         movementArrows.removeAll()
     }
 
-    // MARK: - Public helper to auto-prepare visualization
-    func prepareVisualizationIfNeeded() {
+    // MARK: - Initialization helper
+    func ensureVisualizationReady() {
         if !hasEstablishedOrigin { establishWorldOrigin() }
         if !isVisualizationEnabled { enableVisualization() }
         if debugLoggingEnabled {
-            print("[Viz] prepareVisualizationIfNeeded → enabled=\(isVisualizationEnabled), origin=\(hasEstablishedOrigin)")
+            print("[Viz] ensureVisualizationReady → enabled=\(isVisualizationEnabled), origin=\(hasEstablishedOrigin)")
         }
     }
     
@@ -215,14 +224,21 @@ class ARVisualizationManager: ObservableObject {
     
     func updateTargetFromOdometry(_ result: OdometryTrackingResult) {
         targetPose = result.world3DPoint
+        ensureVisualizationReady()
+        updateGoalPointVisualization()
     }
     
     func setTargetPose(_ worldPoint: SIMD3<Float>) {
         targetPose = worldPoint
+        // Ensure visualization is ready before creating goal point
+        ensureVisualizationReady()
+        updateGoalPointVisualization()
     }
     
     func clearTargetPose() {
         targetPose = nil
+        goalPointEntity?.removeFromParent()
+        goalPointEntity = nil
     }
     
     // MARK: - ML Integration Method
@@ -459,5 +475,37 @@ class ARVisualizationManager: ObservableObject {
         let z = cos_phi_2 * cos_theta_2 * sin_psi_2 - sin_phi_2 * sin_theta_2 * cos_psi_2
         
         return simd_quatf(ix: x, iy: y, iz: z, r: w)
+    }
+    
+    // MARK: - Goal Point Visualization
+    private func updateGoalPointVisualization() {
+        guard let targetPose = targetPose,
+              let worldOriginAnchor = worldOriginAnchor,
+              hasEstablishedOrigin else { 
+            print("❌ Cannot create goal visualization - targetPose: \(targetPose?.debugDescription ?? "nil"), anchor: \(worldOriginAnchor != nil), origin: \(hasEstablishedOrigin)")
+            goalPointEntity?.removeFromParent()
+            goalPointEntity = nil
+            return 
+        }
+        
+        // Remove existing goal point visualization
+        goalPointEntity?.removeFromParent()
+        goalPointEntity = nil
+        
+        // Create a larger, more visible sphere
+        let sphereMesh = MeshResource.generateSphere(radius: 0.1) // 10cm radius - much larger
+        let goalMaterial = SimpleMaterial(color: .systemRed, isMetallic: false) // Bright red color
+        goalPointEntity = ModelEntity(mesh: sphereMesh, materials: [goalMaterial])
+        
+        // Position the sphere at the target pose (relative to world origin)
+        let relativePosition = targetPose - worldOrigin
+        goalPointEntity?.position = relativePosition
+        worldOriginAnchor.addChild(goalPointEntity!)
+        
+        print("🎯 Goal point visualization created:")
+        print("   Target pose (world): \(targetPose)")
+        print("   World origin: \(worldOrigin)")
+        print("   Relative position: \(relativePosition)")
+        print("   Distance from origin: \(length(relativePosition))m")
     }
 }

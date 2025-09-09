@@ -197,40 +197,154 @@ class ARViewModel: ObservableObject{
         
         // Listen for goal-tap notifications and start odometry + set goal point
         NotificationCenter.default.addObserver(forName: NSNotification.Name("ARViewTapForGoal"), object: nil, queue: .main) { [weak self] notif in
-            guard let self = self, let ml = self.mlManager else { return }
+            guard let self = self, let ml = self.mlManager else { 
+                print(" Goal tap: No ML manager")
+                return 
+            }
             // Only handle taps when using a point-conditioned policy and the user enabled goal-tap mode
-            guard ml.isPointConditioned, self.goalTapModeEnabled else { return }
+            print(" Goal tap received - isPointConditioned: \(ml.isPointConditioned), goalTapMode: \(self.goalTapModeEnabled)")
+            guard ml.isPointConditioned, self.goalTapModeEnabled else { 
+                print("Goal tap ignored - conditions not met")
+                return 
+            }
             guard let location = notif.userInfo?["location"] as? CGPoint,
-                  let bounds = notif.userInfo?["bounds"] as? CGRect else { return }
+                  let bounds = notif.userInfo?["bounds"] as? CGRect else { 
+                print(" Missing location or bounds data")
+                return 
+            }
+            print(" Tap location: \(location), bounds: \(bounds)")
             let dummyView = UIView(frame: bounds)
             if let frame = self.session.currentFrame {
                 let depth = self.depthStatus.isDepthAvailable ? (frame.sceneDepth?.depthMap) : nil
-                _ = ml.startOdometryTrackingWithScreenPoint(screenPoint: location, in: dummyView, arFrame: frame, depthMap: depth)
-                if let world = ml.convertScreenToWorld(location, in: dummyView, arSession: self.session, depthMap: depth) ?? self.raycastWithEstimatedDepth(at: location, in: dummyView, frame: frame, estimatedDepth: 2.5) {
+                print("Depth available: \(depth != nil)")
+                if let world = self.getWorldPositionFromTap(location, frame: frame) {
+                    print(" World position calculated: \(world)")
                     ml.setGoalPoint(world)
                     self.arVisualizationManager.setTargetPose(world)
+                    print(" Goal point set and visualization updated")
                     // Exit goal-tap mode after a successful set
                     self.goalTapModeEnabled = false
+                } else {
+                    print(" Failed to get world position from tap")
                 }
             }
         }
     }
-
-    // Fallback conversion using a constant estimated depth when depth map is unavailable
-    private func raycastWithEstimatedDepth(at screenPoint: CGPoint, in view: UIView, frame: ARFrame, estimatedDepth: Float) -> simd_float3? {
+    
+    // Simple, direct approach: Use ARKit's built-in methods + LiDAR depth sampling
+    private func getWorldPositionFromTap(_ tapPoint: CGPoint, frame: ARFrame) -> simd_float3? {
+        print("getWorldPositionFromTap called with: \(tapPoint)")
+        
+        // 1) First try LiDAR depth if available (most accurate)
+        if let sceneDepth = frame.sceneDepth {
+            print(" Trying LiDAR depth method")
+            if let worldPos = getWorldPositionFromDepth(tapPoint, frame: frame, sceneDepth: sceneDepth) {
+                print(" LiDAR depth success: \(worldPos)")
+                return worldPos
+            } else {
+                print(" LiDAR depth failed")
+            }
+        } else {
+            print(" No scene depth available")
+        }
+        
+        // 2) Fallback to ARKit raycasting
+        print(" Trying ARKit raycast fallback")
+        let normalizedPoint = CGPoint(
+            x: tapPoint.x / UIScreen.main.bounds.width,
+            y: tapPoint.y / UIScreen.main.bounds.height
+        )
+        print(" Normalized point: \(normalizedPoint)")
+        
+        let query = frame.raycastQuery(from: normalizedPoint, allowing: .estimatedPlane, alignment: .any)
+        let results = session.raycast(query)
+        print(" Raycast results count: \(results.count)")
+        
+        if let result = results.first {
+            let position = result.worldTransform.columns.3
+            let worldPos = simd_float3(position.x, position.y, position.z)
+            print(" Raycast success: \(worldPos)")
+            return worldPos
+        }
+        
+        // 3) Final fallback: Use fixed depth estimate (1 meter forward)
+        print("Trying fixed depth fallback (1m)")
+        let estimatedDepth: Float = 1.0
+        let camera = frame.camera
+        let cameraTransform = camera.transform
+        
+        // Convert screen point to normalized coordinates (-1 to 1)
+        let normalizedX = (2.0 * Float(tapPoint.x) / Float(UIScreen.main.bounds.width)) - 1.0
+        let normalizedY = 1.0 - (2.0 * Float(tapPoint.y) / Float(UIScreen.main.bounds.height))
+        
+        // Get camera direction through the tap point
+        let intrinsics = camera.intrinsics
+        let fx = intrinsics[0][0]
+        let fy = intrinsics[1][1]
+        let cx = intrinsics[2][0]
+        let cy = intrinsics[2][1]
+        
+        let cameraX = (Float(tapPoint.x) - cx) / fx
+        let cameraY = (Float(tapPoint.y) - cy) / fy
+        let cameraZ = -5.0  // Forward in camera space
+        
+        // Normalize the direction vector
+        let direction = simd_normalize(simd_float3(cameraX, cameraY, Float(cameraZ)))
+        
+        // Scale by estimated depth
+        let cameraSpacePoint = direction * estimatedDepth
+        
+        // Transform to world space
+        let worldPoint = simd_make_float3(cameraTransform * simd_make_float4(cameraSpacePoint, 1.0))
+        
+        print("Fixed depth success: \(worldPoint)")
+        return worldPoint
+    }
+    
+    private func getWorldPositionFromDepth(_ screenPoint: CGPoint, frame: ARFrame, sceneDepth: ARDepthData) -> simd_float3? {
+        let depthMap = sceneDepth.depthMap
+        let dmWidth = CVPixelBufferGetWidth(depthMap)
+        let dmHeight = CVPixelBufferGetHeight(depthMap)
+        
+        // Convert screen point to depth map coordinates
+        let viewSize = UIScreen.main.bounds.size
+        let viewToImage = frame.displayTransform(for: .portrait, viewportSize: viewSize).inverted()
+        var norm = CGPoint(x: screenPoint.x / viewSize.width, y: screenPoint.y / viewSize.height)
+        norm = norm.applying(viewToImage)
+        
+        let x = Int(round(norm.x * CGFloat(dmWidth)))
+        let y = Int(round((1 - norm.y) * CGFloat(dmHeight)))
+        
+        guard x >= 0, x < dmWidth, y >= 0, y < dmHeight else { return nil }
+        
+        CVPixelBufferLockBaseAddress(depthMap, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(depthMap, .readOnly) }
+        
+        let base = CVPixelBufferGetBaseAddress(depthMap)!.assumingMemoryBound(to: Float.self)
+        let rowStride = CVPixelBufferGetBytesPerRow(depthMap) / MemoryLayout<Float>.size
+        let depth = base[y * rowStride + x]
+        
+        guard depth.isFinite && depth > 0 else { return nil }
+        
+        // Convert screen point + depth to world position
         let cameraIntrinsics = frame.camera.intrinsics
         let cameraTransform = frame.camera.transform
+        
         let fx = cameraIntrinsics.columns.0.x
         let fy = cameraIntrinsics.columns.1.y
         let cx = cameraIntrinsics.columns.2.x
         let cy = cameraIntrinsics.columns.2.y
-        let cameraX = (Float(screenPoint.x) - cx) / fx * estimatedDepth
-        let cameraY = (Float(screenPoint.y) - cy) / fy * estimatedDepth
-        let cameraZ = estimatedDepth
+        
+        let cameraX = (Float(screenPoint.x) - cx) / fx * depth
+        let cameraY = (Float(screenPoint.y) - cy) / fy * depth
+        let cameraZ = -depth
+        
         let cameraPoint = simd_float4(cameraX, cameraY, cameraZ, 1.0)
         let worldPoint = simd_mul(cameraTransform, cameraPoint)
+        
         return simd_float3(worldPoint.x, worldPoint.y, worldPoint.z)
     }
+
     
     
     func getBLEManagerInstance() -> BluetoothManager{
