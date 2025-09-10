@@ -40,6 +40,11 @@ class MLInferenceManager: ObservableObject {
     private var inferenceQueue = DispatchQueue(label: "MLInferenceQueue", qos: .userInitiated)
     
     // MARK: - Goal Point Management
+    
+    func setGoalPoint(_ point: simd_float3) {
+        self.currentGoalPoint = point
+        arVisualizationManager?.setTargetPose(point)
+    }
     private var goalPointQueue = DispatchQueue(label: "GoalPointQueue", qos: .userInitiated)
     
     // Goal conditioning mode (point-conditioned models use 3D goals)
@@ -181,10 +186,7 @@ class MLInferenceManager: ObservableObject {
     }
     
     // MARK: - Goal Point Management
-    func setGoalPoint(_ point: simd_float3) {
-        // Set goal point synchronously since UI needs immediate feedback
-        self.currentGoalPoint = point
-    }
+     
     
     func clearGoalPoint() {
         currentGoalPoint = nil

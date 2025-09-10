@@ -198,7 +198,13 @@ struct ReadView : View{
                             HStack(spacing: 20) {
                                 VStack(spacing: 4) {
                                     Button(action: {
-                                        arViewModel.goalTapModeEnabled.toggle()
+                                        let newValue = !arViewModel.goalTapModeEnabled
+                                        arViewModel.goalTapModeEnabled = newValue
+                                        if newValue {
+                                            // Clear existing goal so the next tap sets a fresh one
+                                            arViewModel.mlManager?.clearGoalPoint()
+                                            arViewModel.arVisualizationManager.clearTargetPose()
+                                        }
                                     }) {
                                         Image(systemName: arViewModel.goalTapModeEnabled ? "dot.circle.fill" : "target")
                                             .resizable()
