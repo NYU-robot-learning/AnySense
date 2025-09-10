@@ -42,8 +42,8 @@ class MLInferenceManager: ObservableObject {
     // MARK: - Goal Point Management
     private var goalPointQueue = DispatchQueue(label: "GoalPointQueue", qos: .userInitiated)
     
-    // Goal conditioning mode (matching Python goal_dim)
-    private var goalDimension: Int = 2  // Default to 2D mode, can be 3 for 3D mode
+    // Goal conditioning mode (point-conditioned models use 3D goals)
+    private var goalDimension: Int = 3
     
     // MARK: - Model Management
     private var modelManager: ModelManager
@@ -52,13 +52,9 @@ class MLInferenceManager: ObservableObject {
     // MARK: - AR Visualization Integration
     weak var arVisualizationManager: ARVisualizationManager?
     
-    // MARK: - Odometry Point Tracking
-    @Published var odometryTracker = OdometryPointTracker()
-    @Published var enableOdometryTracking: Bool = true
-    
     // MARK: - Frame Processing (Taken from ARViewContainer)
     private let ciContext: CIContext
-    private let modelInputSize = CGSize(width: 256, height: 256)
+    private var modelInputSize = CGSize(width: 224, height: 224)
     private var modelInputTransform: CGAffineTransform?
     
     // MARK: - Inference Settings
@@ -129,14 +125,21 @@ class MLInferenceManager: ObservableObject {
             // Extract model metadata for type detection
             modelMetadata = try ModelMetadata(from: loadedModel)
             
+            // Set input size based on model type: standard = 256, point-conditioned = 224
+            if let meta = modelMetadata {
+                switch meta.modelType {
+                case .standard:
+                    modelInputSize = CGSize(width: 256, height: 256)
+                case .pointConditioned:
+                    modelInputSize = CGSize(width: 224, height: 224)
+                }
+            } else {
+                modelInputSize = CGSize(width: 224, height: 224)
+            }
             setupModelInputTransform()
             
-            // Set goal dimension based on model type
-            if modelMetadata?.modelType == .pointConditioned {
-                goalDimension = 3  // VQ-BeT models expect 3D coordinates
-            } else {
-                goalDimension = 2  // Standard models use 2D
-            }
+            // Force 3D goal conditioning
+            goalDimension = 3
             
             // Clear goal point if switching to non-point-conditioned model
             if modelMetadata?.requiresGoalPoint == false {
@@ -187,52 +190,7 @@ class MLInferenceManager: ObservableObject {
         currentGoalPoint = nil
     }
     
-    // MARK: - Odometry Integration Methods
-    
-    /// Start odometry tracking with screen point (matching Python workflow)
-    func startOdometryTrackingWithScreenPoint(
-        screenPoint: CGPoint,
-        in view: UIView,
-        arFrame: ARFrame,
-        depthMap: CVPixelBuffer?
-    ) -> Bool {
-        guard enableOdometryTracking else {
-            return false
-        }
-        
-        guard let session = getARSession() else {
-            return false
-        }
-        
-        let success = odometryTracker.startTracking(
-            screenPoint: screenPoint,
-            in: view,
-            arFrame: arFrame,
-            session: session,
-            depthMap: depthMap
-        )
-        
-        // Odometry tracking started
-        
-        return success
-    }
-    
-    /// Update odometry tracking (step_n > 0 equivalent)
-    func updateOdometryTracking(arFrame: ARFrame) {
-        // Always update actual device pose for non-point-conditioned model deviation tracking
-        arVisualizationManager?.updateActualDevicePose(from: arFrame)
-        
-        guard enableOdometryTracking,
-              odometryTracker.trackingState == .tracking else {
-            return
-        }
-        
-        // Get updated odometry result and pass to visualization
-        if let odometryResult = odometryTracker.updateTracking(currentFrame: arFrame) {
-            // Update visualization with new target position from odometry
-            arVisualizationManager?.updateTargetFromOdometry(odometryResult)
-        }
-    }
+    // MARK: - Odometry Integration Methods (removed)
     
     /// Set goal dimension (2D or 3D goal conditioning)
     func setGoalDimension(_ dimension: Int) {
@@ -255,35 +213,8 @@ class MLInferenceManager: ObservableObject {
             // labels.json mapping from camera frame
             return [-p_c4.x, p_c4.z, p_c4.y]
         }
-        // 2D goals: project world-locked goal point to current camera view
-        if let p_w = currentGoalPoint, let session = getARSession(), let frame = session.currentFrame {
-            // Project world point to current camera view
-            let T_wc = frame.camera.transform
-            let T_cw = simd_inverse(T_wc)
-            let p_c4 = simd_mul(T_cw, simd_float4(p_w.x, p_w.y, p_w.z, 1.0))
-            let p_c = simd_float3(p_c4.x, p_c4.y, p_c4.z)
-            
-            // Project to normalized screen coordinates [0,1]
-            let intrinsics = frame.camera.intrinsics
-            let fx = intrinsics.columns.0.x
-            let fy = intrinsics.columns.1.y
-            let cx = intrinsics.columns.2.x
-            let cy = intrinsics.columns.2.y
-            
-            let screenX = (p_c.x * fx / (-p_c.z)) + cx
-            let screenY = (p_c.y * fy / (-p_c.z)) + cy
-            
-            let imageWidth = frame.camera.imageResolution.width
-            let imageHeight = frame.camera.imageResolution.height
-            
-            let normalizedX = screenX / Float(imageWidth)
-            let normalizedY = screenY / Float(imageHeight)
-            
-            // Clamp to [0,1] range
-            return [max(0, min(1, normalizedX)), max(0, min(1, normalizedY))]
-        } else {
-            return [0.5, 0.5] // Center fallback
-        }
+        // If model expects 2D goals, return nil since we only support 3D goals now
+        return nil
     }
     
     // MARK: - AR Session Access
@@ -300,9 +231,9 @@ class MLInferenceManager: ObservableObject {
     
     // MARK: - Inference Methods (Using existing frame processing patterns)
     func performInference(on pixelBuffer: CVPixelBuffer, arFrame: ARFrame?, timestamp: CFTimeInterval = CACurrentMediaTime()) {
-        // Update odometry tracking to have consistent goal point for model input preparation
+        // Update device pose for visualization (optional)
         if let frame = arFrame {
-            updateOdometryTracking(arFrame: frame)
+            arVisualizationManager?.updateActualDevicePose(from: frame)
         }
         
         performInference(on: pixelBuffer, timestamp: timestamp)
@@ -382,7 +313,7 @@ class MLInferenceManager: ObservableObject {
         // Process image to match expected rank (support 4D [1,3,H,W] and 5D [1,1,3,H,W])
         let imageArray = try processFrameForVQBeT(
             pixelBuffer,
-            inputSize: metadata.imageInputSize ?? CGSize(width: 256, height: 256),
+            inputSize: CGSize(width: 224, height: 224),
             expectedRank: expectedImageRank
         )
         
@@ -591,8 +522,13 @@ class MLInferenceManager: ObservableObject {
     
     // MARK: - Simplified Pixel Buffer to MLMultiArray Conversion
     private func convertProcessedPixelBufferToMLMultiArray(_ pixelBuffer: CVPixelBuffer) throws -> MLMultiArray {
-        // Explicitly index as [B=1, T=1, C=3, H=256, W=256]
-        let inputArray = try MLMultiArray(shape: [1, 1, 3, 256, 256], dataType: .float32)
+        // Explicitly index as [B=1, T=1, C=3, H=modelInputSize.height, W=modelInputSize.width]
+        let height = Int(modelInputSize.height)
+        let width = Int(modelInputSize.width)
+        let inputArray = try MLMultiArray(
+            shape: [1, 1, 3, NSNumber(value: height), NSNumber(value: width)],
+            dataType: .float32
+        )
         
         guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else {
             throw NSError(domain: "MLInferenceManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to get pixel buffer base address"])
@@ -603,8 +539,8 @@ class MLInferenceManager: ObservableObject {
         let bytesPerPixel = 4 // ARGB format
         
         // Since we're using Core Image processing, we have consistent ARGB format
-        for y in 0..<256 {
-            for x in 0..<256 {
+        for y in 0..<height {
+            for x in 0..<width {
                 let offset = y * bytesPerRow + x * bytesPerPixel
                 let r = Float(buffer[offset + 1]) / 255.0
                 let g = Float(buffer[offset + 2]) / 255.0
@@ -766,21 +702,4 @@ class MLInferenceManager: ObservableObject {
         print("Synchronized frequencies: \(inferenceFrequency.displayName)")
     }
     
-    // MARK: - Odometry Integration Validation
-    func validateOdometryIntegration() -> Bool {
-        // Check if odometry tracking is properly set up
-        let hasTracker = odometryTracker != nil
-        let isEnabled = enableOdometryTracking
-        let hasARConnection = arViewContainer != nil
-        let hasVisualizationConnection = arVisualizationManager != nil
-        
-        let isValid = hasTracker && hasARConnection && hasVisualizationConnection
-        
-        print("Odometry validation: \(isValid ? "OK" : "Failed")")
-        if !isValid {
-            print("Issues: tracker=\(hasTracker), AR=\(hasARConnection), viz=\(hasVisualizationConnection)")
-        }
-        
-        return isValid
-    }
 } 

@@ -54,6 +54,7 @@ class ARVisualizationManager: ObservableObject {
     private var targetPose: SIMD3<Float>?
     private var actualDevicePose: SIMD3<Float> = SIMD3<Float>(0, 0, 0)
     private var goalPointEntity: ModelEntity?
+    private var goalAnchorEntity: AnchorEntity?
     
     // Movement tracking
     private var worldOrigin: SIMD3<Float> = SIMD3<Float>(0, 0, 0)
@@ -140,7 +141,7 @@ class ARVisualizationManager: ObservableObject {
         currentArView.scene.addAnchor(anchor)
         worldOriginAnchor = anchor
         
-        print("🌍 World origin set at: \(worldOrigin) and anchor created")
+        print("World origin set at: \(worldOrigin) and anchor created")
     }
     
     private func resetMovementTracking() {
@@ -216,16 +217,10 @@ class ARVisualizationManager: ObservableObject {
         print("AR Visualization frequency set to: \(frequency.displayName)")
     }
     
-    // MARK: - Odometry/Device Pose Integration
+    // MARK: - Device Pose Integration
     func updateActualDevicePose(from arFrame: ARFrame) {
         let t = arFrame.camera.transform
         actualDevicePose = SIMD3<Float>(t.columns.3.x, t.columns.3.y, t.columns.3.z)
-    }
-    
-    func updateTargetFromOdometry(_ result: OdometryTrackingResult) {
-        targetPose = result.world3DPoint
-        ensureVisualizationReady()
-        updateGoalPointVisualization()
     }
     
     func setTargetPose(_ worldPoint: SIMD3<Float>) {
@@ -482,7 +477,7 @@ class ARVisualizationManager: ObservableObject {
         guard let targetPose = targetPose,
               let worldOriginAnchor = worldOriginAnchor,
               hasEstablishedOrigin else { 
-            print("❌ Cannot create goal visualization - targetPose: \(targetPose?.debugDescription ?? "nil"), anchor: \(worldOriginAnchor != nil), origin: \(hasEstablishedOrigin)")
+            print(" Cannot create goal visualization - targetPose: \(targetPose?.debugDescription ?? "nil"), anchor: \(worldOriginAnchor != nil), origin: \(hasEstablishedOrigin)")
             goalPointEntity?.removeFromParent()
             goalPointEntity = nil
             return 
@@ -492,9 +487,9 @@ class ARVisualizationManager: ObservableObject {
         goalPointEntity?.removeFromParent()
         goalPointEntity = nil
         
-        // Create a larger, more visible sphere
-        let sphereMesh = MeshResource.generateSphere(radius: 0.1) // 10cm radius - much larger
-        let goalMaterial = SimpleMaterial(color: .systemRed, isMetallic: false) // Bright red color
+        // Create a visible sphere 
+        let sphereMesh = MeshResource.generateSphere(radius: 0.01)
+        let goalMaterial = SimpleMaterial(color: .systemRed, isMetallic: false) 
         goalPointEntity = ModelEntity(mesh: sphereMesh, materials: [goalMaterial])
         
         // Position the sphere at the target pose (relative to world origin)
@@ -502,10 +497,17 @@ class ARVisualizationManager: ObservableObject {
         goalPointEntity?.position = relativePosition
         worldOriginAnchor.addChild(goalPointEntity!)
         
-        print("🎯 Goal point visualization created:")
+        print("Goal point visualization created:")
         print("   Target pose (world): \(targetPose)")
         print("   World origin: \(worldOrigin)")
         print("   Relative position: \(relativePosition)")
         print("   Distance from origin: \(length(relativePosition))m")
+    }
+
+    // MARK: - Anchor-based goal visualization
+    func attachGoalAnchor(_ arAnchor: ARAnchor) {
+        if debugLoggingEnabled {
+            print("[Viz] attachGoalAnchor deprecated; use setTargetPose(world)")
+        }
     }
 }

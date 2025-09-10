@@ -3,14 +3,13 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 70;
+	objectVersion = 56;
 	objects = {
 
 /* Begin PBXBuildFile section */
 		01682BC42DF0D88100CDA03C /* ModelInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F5B7C92DEA6A1000061B16 /* ModelInfo.swift */; };
 		01682BC52DF0D88C00CDA03C /* MLModel+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F5B7CB2DEA6A2000061B16 /* MLModel+Extensions.swift */; };
 		01682BC92DF4D7CB00CDA03C /* ARVisualizationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01682BC82DF4D7CB00CDA03C /* ARVisualizationManager.swift */; };
-		01D2FDD72E64C33600F0BA98 /* OdometryPointTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01D2FDD62E64C33600F0BA98 /* OdometryPointTracker.swift */; };
 		01D2FDD82E64C33600F0BA98 /* ActionTransformUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01D2FDD52E64C33600F0BA98 /* ActionTransformUtils.swift */; };
 		01F5B7C42DEA697200061B16 /* MLInferenceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F5B7C32DEA697200061B16 /* MLInferenceManager.swift */; };
 		01F5B7C62DEA698D00061B16 /* MLInferenceResultsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F5B7C52DEA698D00061B16 /* MLInferenceResultsView.swift */; };
@@ -51,7 +50,6 @@
 /* Begin PBXFileReference section */
 		01682BC82DF4D7CB00CDA03C /* ARVisualizationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ARVisualizationManager.swift; sourceTree = "<group>"; };
 		01D2FDD52E64C33600F0BA98 /* ActionTransformUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionTransformUtils.swift; sourceTree = "<group>"; };
-		01D2FDD62E64C33600F0BA98 /* OdometryPointTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OdometryPointTracker.swift; sourceTree = "<group>"; };
 		01F5B7C32DEA697200061B16 /* MLInferenceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLInferenceManager.swift; sourceTree = "<group>"; };
 		01F5B7C52DEA698D00061B16 /* MLInferenceResultsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLInferenceResultsView.swift; sourceTree = "<group>"; };
 		01F5B7C72DEA6A0000061B16 /* ModelManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelManager.swift; sourceTree = "<group>"; };
@@ -76,6 +74,7 @@
 		BA11D17F77459219187F7A30 /* Pods-AnySense.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-AnySense.release.xcconfig"; path = "Target Support Files/Pods-AnySense/Pods-AnySense.release.xcconfig"; sourceTree = "<group>"; };
 		E98E38A27D08BC9D5BE3E2E6 /* Pods-AnySense.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-AnySense.debug.xcconfig"; path = "Target Support Files/Pods-AnySense/Pods-AnySense.debug.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
 /* Begin PBXFrameworksBuildPhase section */
 		B9104F572BFDE63A000D4DDD /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
@@ -143,7 +142,6 @@
 				B9E4B2282D62A9BA0032E877 /* ARViewContainer.swift */,
 				01F5B7C32DEA697200061B16 /* MLInferenceManager.swift */,
 				01D2FDD52E64C33600F0BA98 /* ActionTransformUtils.swift */,
-				01D2FDD62E64C33600F0BA98 /* OdometryPointTracker.swift */,
 				01682BC82DF4D7CB00CDA03C /* ARVisualizationManager.swift */,
 				01F5B7C72DEA6A0000061B16 /* ModelManager.swift */,
 				B9E4B2292D62A9BA0032E877 /* BluetoothManager.swift */,
@@ -349,7 +347,6 @@
 				B997CCD32D4E081300F62B49 /* dataStorage.swift in Sources */,
 				01682BC52DF0D88C00CDA03C /* MLModel+Extensions.swift in Sources */,
 				01F5B7C42DEA697200061B16 /* MLInferenceManager.swift in Sources */,
-				01D2FDD72E64C33600F0BA98 /* OdometryPointTracker.swift in Sources */,
 				01D2FDD82E64C33600F0BA98 /* ActionTransformUtils.swift in Sources */,
 				01F5B7C82DEA6A0000061B16 /* ModelManager.swift in Sources */,
 				B9E4B22D2D62A9BA0032E877 /* BluetoothManager.swift in Sources */,

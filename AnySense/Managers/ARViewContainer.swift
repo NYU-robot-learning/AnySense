@@ -76,6 +76,12 @@ struct ARViewContainer: UIViewRepresentable {
             if let hit = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any).first {
                 let t = hit.worldTransform
                 let world = simd_float3(t.columns.3.x, t.columns.3.y, t.columns.3.z)
+
+                // Create a native ARKit anchor at the hit (world-locked)
+                let goalAnchor = ARAnchor(name: "goal", transform: t)
+                arView.session.add(anchor: goalAnchor)
+
+                // Notify ML pipeline with the world point; ARVisualizationManager will handle visuals
                 NotificationCenter.default.post(
                     name: NSNotification.Name("ARViewTapForGoal"),
                     object: nil,
@@ -229,200 +235,14 @@ class ARViewModel: ObservableObject{
             if let world = notif.userInfo?["worldPoint"] as? simd_float3 {
                 print("Using raycast world point: \(world)")
                 ml.setGoalPoint(world)
-                self.arVisualizationManager.setTargetPose(world)
                 self.goalTapModeEnabled = false
                 return
             }
-            // Otherwise, fall back to computing from screen point
-            guard let location = notif.userInfo?["location"] as? CGPoint,
-                  let bounds = notif.userInfo?["bounds"] as? CGRect else { 
-                print(" Missing location or bounds data")
-                return 
-            }
-            print(" Tap location: \(location), bounds: \(bounds)")
-            if let frame = self.session.currentFrame {
-                let depth = self.depthStatus.isDepthAvailable ? (frame.sceneDepth?.depthMap) : nil
-                print("Depth available: \(depth != nil)")
-                if let world = self.getWorldPositionFromTap(location, frame: frame, viewBounds: bounds) {
-                    print(" World position calculated: \(world)")
-                    ml.setGoalPoint(world)
-                    self.arVisualizationManager.setTargetPose(world)
-                    print(" Goal point set and visualization updated")
-                    self.goalTapModeEnabled = false
-                } else {
-                    print(" Failed to get world position from tap")
-                }
-            }
+            // No worldPoint provided (no raycast hit) — ignore tap
         }
     }
     
-    // Simple, direct approach: Use ARKit's built-in methods + LiDAR depth sampling
-    private func getWorldPositionFromTap(_ tapPoint: CGPoint, frame: ARFrame, viewBounds: CGRect) -> simd_float3? {
-        print("getWorldPositionFromTap called with: \(tapPoint)")
-        
-        // 1) First try LiDAR depth if available (most accurate)
-        if let sceneDepth = frame.sceneDepth {
-            print(" Trying LiDAR depth method")
-            if let worldPos = getWorldPositionFromDepth(tapPoint, frame: frame, sceneDepth: sceneDepth, viewBounds: viewBounds) {
-                print(" LiDAR depth success: \(worldPos)")
-                return worldPos
-            } else {
-                print(" LiDAR depth failed")
-            }
-        } else {
-            print(" No scene depth available")
-        }
-        
-        // 2) Fallback to ARKit raycasting
-        print(" Trying ARKit raycast fallback")
-        let normalizedPoint = CGPoint(
-            x: tapPoint.x / UIScreen.main.bounds.width,
-            y: tapPoint.y / UIScreen.main.bounds.height
-        )
-        print(" Normalized point: \(normalizedPoint)")
-        
-        let query = frame.raycastQuery(from: normalizedPoint, allowing: .estimatedPlane, alignment: .any)
-        let results = session.raycast(query)
-        print(" Raycast results count: \(results.count)")
-        
-        if let result = results.first {
-            let position = result.worldTransform.columns.3
-            let worldPos = simd_float3(position.x, position.y, position.z)
-            print(" Raycast success: \(worldPos)")
-            return worldPos
-        }
-        
-        // 3) Final fallback: Use fixed depth estimate with displayTransform and original intrinsics
-        print("Trying fixed depth fallback (1m)")
-        let estimatedDepth: Float = 1.0
-        
-        // Get camera parameters
-        let camera = frame.camera
-        let cameraTransform = camera.transform
-        let intrinsics = camera.intrinsics
-        let imageResolution = frame.camera.imageResolution
-        let imageWidth = Float(imageResolution.width)
-        let imageHeight = Float(imageResolution.height)
-        
-        let fx = intrinsics.columns.0.x
-        let fy = intrinsics.columns.1.y
-        let cx = intrinsics.columns.2.x
-        let cy = intrinsics.columns.2.y
-        
-        // Map tap point from view coords → normalized view → normalized image using displayTransform
-        let viewSize = viewBounds.size
-        // Detect current device orientation
-        let currentOrientation: UIInterfaceOrientation
-        if #available(iOS 13.0, *) {
-            currentOrientation = UIApplication.shared.windows.first?.windowScene?.interfaceOrientation ?? .portrait
-        } else {
-            currentOrientation = UIApplication.shared.statusBarOrientation
-        }
-        let viewToImage = frame.displayTransform(for: currentOrientation, viewportSize: viewSize).inverted()
-        var normView = CGPoint(x: tapPoint.x / viewSize.width, y: tapPoint.y / viewSize.height)
-        let normImage = normView.applying(viewToImage)
-        
-        // Convert normalized image coords to pixel coords in captured image space
-        let u_img = Float(normImage.x) * imageWidth
-        let v_img = Float(normImage.y) * imageHeight
-        
-        print("=== COORDINATE DEBUG ===")
-        print("Tap point: \(tapPoint)")
-        print("View bounds: \(viewBounds)")
-        print("Camera image resolution: \(imageResolution)")
-        print("Orientation: \(currentOrientation)")
-        print("Normalized view: \(normView) → normalized image: \(normImage)")
-        print("Pixel coords (u,v): (\(u_img), \(v_img))")
-        print("Intrinsics - fx: \(fx), fy: \(fy), cx: \(cx), cy: \(cy)")
-        
-        // Convert pixel coords + fixed depth to camera space
-        let cameraX = (u_img - cx) / fx * estimatedDepth
-        let cameraY = -((v_img - cy) / fy) * estimatedDepth  // Flip Y to fix top/bottom inversion
-        let cameraZ = -estimatedDepth  // Negative Z in camera space
-        
-        print("Camera space point - X: \(cameraX), Y: \(cameraY), Z: \(cameraZ)")
-        
-        // Transform from camera space to world space
-        let cameraPoint = simd_float4(cameraX, cameraY, cameraZ, 1.0)
-        let worldPoint = simd_mul(cameraTransform, cameraPoint)
-        
-        print("Fixed depth success: \(simd_float3(worldPoint.x, worldPoint.y, worldPoint.z))")
-        return simd_float3(worldPoint.x, worldPoint.y, worldPoint.z)
-    }
-    
-    private func getWorldPositionFromDepth(_ screenPoint: CGPoint, frame: ARFrame, sceneDepth: ARDepthData, viewBounds: CGRect) -> simd_float3? {
-        let depthMap = sceneDepth.depthMap
-        let dmWidth = CVPixelBufferGetWidth(depthMap)
-        let dmHeight = CVPixelBufferGetHeight(depthMap)
-        
-        print("Depth map size: \(dmWidth) x \(dmHeight)")
-        
-        // Convert screen point to image/depth coordinates using ARKit display transform
-        let viewSize = viewBounds.size
-        print("ARView bounds: \(viewBounds)")
-        print("View size: \(viewSize)")
-        
-        let currentOrientation: UIInterfaceOrientation
-        if #available(iOS 13.0, *) {
-            currentOrientation = UIApplication.shared.windows.first?.windowScene?.interfaceOrientation ?? .portrait
-        } else {
-            currentOrientation = UIApplication.shared.statusBarOrientation
-        }
-        print("Current orientation: \(currentOrientation)")
-        
-        let viewToImage = frame.displayTransform(for: currentOrientation, viewportSize: viewSize).inverted()
-        let normView = CGPoint(x: screenPoint.x / viewSize.width, y: screenPoint.y / viewSize.height)
-        let normImage = normView.applying(viewToImage)
-        print("Normalized view: \(normView) → normalized image: \(normImage)")
-        
-        // Depth map indices from normalized image coords
-        let x = Int(round(normImage.x * CGFloat(dmWidth)))
-        let y = Int(round(normImage.y * CGFloat(dmHeight)))
-        print("Depth map coordinates: (\(x), \(y)) of (\(dmWidth), \(dmHeight))")
-        
-        guard x >= 0, x < dmWidth, y >= 0, y < dmHeight else { 
-            print("Depth coordinates out of bounds: x=\(x), y=\(y), bounds=(\(dmWidth), \(dmHeight))")
-            return nil 
-        }
-        
-        CVPixelBufferLockBaseAddress(depthMap, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(depthMap, .readOnly) }
-        
-        let base = CVPixelBufferGetBaseAddress(depthMap)!.assumingMemoryBound(to: Float.self)
-        let rowStride = CVPixelBufferGetBytesPerRow(depthMap) / MemoryLayout<Float>.size
-        let depth = base[y * rowStride + x]
-        print("Raw depth value: \(depth)")
-        
-        guard depth.isFinite && depth > 0 else { 
-            print("Invalid depth: isFinite=\(depth.isFinite), value=\(depth)")
-            return nil 
-        }
-        
-        // Convert image pixel coords + depth to world position
-        let cameraIntrinsics = frame.camera.intrinsics
-        let cameraTransform = frame.camera.transform
-        let imageResolution = frame.camera.imageResolution
-        let imgW = Float(imageResolution.width)
-        let imgH = Float(imageResolution.height)
-        let u_img = Float(normImage.x) * imgW
-        let v_img = Float(normImage.y) * imgH
-        
-        print("Image pixel coords (u,v): (\(u_img), \(v_img)) of (\(imgW), \(imgH))")
-        
-        let fx = cameraIntrinsics.columns.0.x
-        let fy = cameraIntrinsics.columns.1.y
-        let cx = cameraIntrinsics.columns.2.x
-        let cy = cameraIntrinsics.columns.2.y
-        
-        let cameraX = (u_img - cx) / fx * depth
-        let cameraY = -((v_img - cy) / fy) * depth  // Flip Y to fix top/bottom inversion
-        let cameraZ = -depth
-        
-        let cameraPoint = simd_float4(cameraX, cameraY, cameraZ, 1.0)
-        let worldPoint = simd_mul(cameraTransform, cameraPoint)
-        
-        return simd_float3(worldPoint.x, worldPoint.y, worldPoint.z)
-    }
+
 
     
     
