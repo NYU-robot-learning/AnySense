@@ -89,7 +89,7 @@ class MLInferenceManager: ObservableObject {
     var rotationUnit: ActionTransformUtils.RotationUnit = .eulerXYZ
     var enableTransformDebug: Bool = true
     // Apply server-style image orientation (Record3D publisher does rotations/mirrors)
-    var applyServerImageOrientation: Bool = true
+    var applyServerImageOrientation: Bool = false
     
     // Initialization
     init(modelManager: ModelManager) {
@@ -130,17 +130,8 @@ class MLInferenceManager: ObservableObject {
             // Extract model metadata for type detection
             modelMetadata = try ModelMetadata(from: loadedModel)
             
-            // Set input size based on model type: standard = 256, point-conditioned = 224
-            if let meta = modelMetadata {
-                switch meta.modelType {
-                case .standard:
-                    modelInputSize = CGSize(width: 256, height: 256)
-                case .pointConditioned:
-                    modelInputSize = CGSize(width: 224, height: 224)
-                }
-            } else {
-                modelInputSize = CGSize(width: 224, height: 224)
-            }
+            // 224x224 input for all models
+            modelInputSize = CGSize(width: 224, height: 224)
             setupModelInputTransform()
             
             // Force 3D goal conditioning
@@ -598,11 +589,7 @@ class MLInferenceManager: ObservableObject {
                         let report = ActionTransformUtils.debugTransformReport(src, rotationUnit: self?.rotationUnit ?? .eulerXYZ)
                         print("Coordinate Transform: \(report)")
                     }
-                    var robot = ActionTransformUtils.toRobotActions(src, rotationUnit: self?.rotationUnit ?? .eulerXYZ)
-                    // Clamp gripper to [0,1]
-                    if robot.count >= 7 {
-                        robot[6] = max(0.0, min(1.0, robot[6]))
-                    }
+                    let robot = ActionTransformUtils.toRobotActions(src, rotationUnit: self?.rotationUnit ?? .eulerXYZ)
                     print("Robot actions: [\(robot.map { String(format: "%.3f", $0) }.joined(separator: ", "))]")
                     // Joint actions are now sent embedded in the main USB stream
                 }
@@ -643,10 +630,7 @@ class MLInferenceManager: ObservableObject {
                 // Joint actions are automatically sent via USB stream (transform to robot frame)
                 if jointPositions.count >= 7 {
                     let src = Array(jointPositions.prefix(7))
-                    var robot = ActionTransformUtils.toRobotActions(src)
-                    if robot.count >= 7 {
-                        robot[6] = max(0.0, min(1.0, robot[6]))
-                    }
+                    let robot = ActionTransformUtils.toRobotActions(src, rotationUnit: self?.rotationUnit ?? .eulerXYZ)
                     print("Robot actions: [\(robot.map { String(format: "%.3f", $0) }.joined(separator: ", "))]")
                     // Joint actions are now sent embedded in the main USB stream
                 }
