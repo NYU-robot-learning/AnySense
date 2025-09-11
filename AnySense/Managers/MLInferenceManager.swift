@@ -197,14 +197,19 @@ class MLInferenceManager: ObservableObject {
             guard let session = getARSession(), let frame = session.currentFrame else {
                 return nil
             }
+
+
             // Use the world-locked goal point (ARKit keeps it fixed in world space)
             guard let p_w = currentGoalPoint else { return nil }
             // World (ARKit) → Camera
             let T_wc = frame.camera.transform
             let T_cw = simd_inverse(T_wc)
             let p_c4 = simd_mul(T_cw, simd_float4(p_w.x, p_w.y, p_w.z, 1.0))
-            // labels.json mapping from camera frame
-            return [-p_c4.x, p_c4.z, p_c4.y]
+            // Current logic
+            // camera: x right, y up, z back
+            // labels: x left, y forward, z down
+            // Mapping: x = -x_cam, y = -z_cam, z = -y_cam
+            return [-p_c4.x, -p_c4.z, -p_c4.y]
         }
         // If model expects 2D goals, return nil since we only support 3D goals now
         return nil
