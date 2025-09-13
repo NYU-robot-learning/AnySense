@@ -294,31 +294,43 @@ class ARVisualizationManager: ObservableObject {
     private func interpretMLDirections(_ jointActions: [Float]) -> (translation: SIMD3<Float>, rotation: simd_quatf, confidence: Float) {
         // Use unified policy→camera mapping for consistency with robot path
         let action7 = Array(jointActions.prefix(7))
-        let quarterTurns: Int
-        // Map device interface orientation to quarter turns around camera Z
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-            switch windowScene.interfaceOrientation {
-            case .landscapeLeft:
-                quarterTurns = 1
-            case .landscapeRight:
-                quarterTurns = -1
-            case .portraitUpsideDown:
-                quarterTurns = 2
-            default:
-                quarterTurns = 0
-            }
-        } else {
-            quarterTurns = 0
-        }
-        let mapped = ActionTransformUtils.policyToCameraEulerAction(action7, rotationUnit: .eulerXYZ, quarterTurns: quarterTurns)
-        let translation = SIMD3<Float>(mapped[0], mapped[1], mapped[2])
-        let rotation = eulerToQuaternion(roll: mapped[3], pitch: mapped[4], yaw: mapped[5])
+        // let quarterTurns: Int
+        // // Map device interface orientation to quarter turns around camera Z
+        // if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+        //     switch windowScene.interfaceOrientation {
+        //     case .landscapeLeft:
+        //         quarterTurns = 1
+        //     case .landscapeRight:
+        //         quarterTurns = -1
+        //     case .portraitUpsideDown:
+        //         quarterTurns = 2
+        //     default:
+        //         quarterTurns = 0
+        //     }
+        // } else {
+        //     quarterTurns = 0
+        // }
+        // let mapped = ActionTransformUtils.policyToCameraEulerAction(action7, rotationUnit: .eulerXYZ, quarterTurns: quarterTurns)
+        // let translation = SIMD3<Float>(mapped[0], mapped[1], mapped[2])
+        // let rotation = eulerToQuaternion(roll: mapped[3], pitch: mapped[4], yaw: mapped[5])
         
-        // Confidence heuristic: translation magnitude plus rotation magnitude
-        let translationMagnitude = length(translation)
-        let rotationMagnitude = sqrt(mapped[3] * mapped[3] + mapped[4] * mapped[4] + mapped[5] * mapped[5])
-        let confidence = min(1.0, (translationMagnitude * 10 + rotationMagnitude) / 2.0)
-        
+        // // Confidence heuristic: translation magnitude plus rotation magnitude
+        // let translationMagnitude = length(translation)
+        // let rotationMagnitude = sqrt(mapped[3] * mapped[3] + mapped[4] * mapped[4] + mapped[5] * mapped[5])
+        // let confidence = min(1.0, (translationMagnitude * 10 + rotationMagnitude) / 2.0)
+
+
+        // take policy output, transform to camera frame with camera transform and then labels with 5cm offset and in arkit convention
+        let camera_transform = getCurrentCameraTransform()
+        let camera_translation = SIMD3<Float>(camera_transform.columns.3.x, camera_transform.columns.3.y, camera_transform.columns.3.z)
+        let camera_rotation = eulerToQuaternion(roll: camera_transform.columns.0.x, pitch: camera_transform.columns.0.y, yaw: camera_transform.columns.0.z)
+        let policy_translation_camera = camera_transform * SIMD4<Float>(jointActions[0], jointActions[1], jointActions[2], 1)
+        let policy_translation_camera_labels = SIMD3<Float>(-policy_translation_camera.x, -policy_translation_camera.z + 0.05, -policy_translation_camera.y)
+        let policy_translation_camera_labels_rotation = camera_rotation.act(policy_translation_camera_labels)
+        let translation = policy_translation_camera_labels_rotation
+        let rotation = camera_rotation
+        let confidence: Float = 1.0
+
         return (translation, rotation, confidence)
     }
     

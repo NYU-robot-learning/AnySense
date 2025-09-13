@@ -209,7 +209,8 @@ class MLInferenceManager: ObservableObject {
             // camera: x right, y up, z back
             // labels: x left, y forward, z down
             // Mapping: x = -x_cam, y = -z_cam, z = -y_cam
-            return [-p_c4.x, -p_c4.z, -p_c4.y]
+            // We add 0.05 to the z coordinate since training data is shifted forward a bit.
+            return [-p_c4.x, -p_c4.z + 0.05, -p_c4.y] 
         }
         // If model expects 2D goals, return nil since we only support 3D goals now
         return nil

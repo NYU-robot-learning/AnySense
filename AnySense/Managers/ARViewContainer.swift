@@ -74,7 +74,7 @@ struct ARViewContainer: UIViewRepresentable {
             let location = recognizer.location(in: arView)
 
             // Try depth-based unprojection first (for LiDAR devices)
-            if let (worldPoint, method) = self.worldPointFromDepth(at: location, in: arView) {
+            if let (worldPoint, method) = parent.worldPointFromDepth(at: location, in: arView) {
                 print("Using \(method) method for 3D point: \(worldPoint)")
 
                 // Create anchor at the world point
@@ -131,6 +131,75 @@ struct ARViewContainer: UIViewRepresentable {
                 ]
             )
         }
+    }
+
+    // MARK: - Depth-Based Point Calculation
+    private func worldPointFromDepth(at location: CGPoint, in arView: ARView) -> (point: simd_float3, method: String)? {
+        guard let frame = arView.session.currentFrame,
+              let depth = frame.sceneDepth?.depthMap else {
+            return nil
+        }
+
+        let depthWidth = CVPixelBufferGetWidth(depth)
+        let depthHeight = CVPixelBufferGetHeight(depth)
+        let viewBounds = arView.bounds
+
+        // 1. Normalize tap location to view coordinates
+        let normView = CGPoint(
+            x: location.x / viewBounds.width,
+            y: location.y / viewBounds.height
+        )
+
+        // 2. Apply display transform to get camera image coordinates
+        let ori = arView.window?.windowScene?.interfaceOrientation ?? .portrait
+        let disp = frame.displayTransform(for: ori, viewportSize: viewBounds.size)
+        let camNorm = normView.applying(disp.inverted())
+
+        // 3. Map to depth pixel coordinates
+        let u = Int(clamp(camNorm.x, 0, 1) * CGFloat(depthWidth))
+        let v = Int(clamp(camNorm.y, 0, 1) * CGFloat(depthHeight))
+
+        // 4. Sample depth with median filtering for noise reduction
+        CVPixelBufferLockBaseAddress(depth, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(depth, .readOnly) }
+
+        let base = CVPixelBufferGetBaseAddress(depth)!.assumingMemoryBound(to: Float32.self)
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(depth) / MemoryLayout<Float32>.size
+        let N = 3
+        var samples: [Float] = []
+
+        for j in max(0, v - N)...min(depthHeight - 1, v + N) {
+            for i in max(0, u - N)...min(depthWidth - 1, u + N) {
+                let d = base[j * bytesPerRow + i]
+                if d.isFinite, d > 0 {
+                    samples.append(d)
+                }
+            }
+        }
+
+        guard !samples.isEmpty else { return nil }
+        samples.sort()
+        let depthValue = samples[samples.count / 2] // median
+
+        // 5. Unproject to camera coordinates using intrinsics
+        let K = frame.camera.intrinsics
+        let fx = K.columns.0.x, fy = K.columns.1.y
+        let cx = K.columns.2.x, cy = K.columns.2.y
+
+        let xc = (Float(u) - cx) * depthValue / fx
+        let yc = (Float(v) - cy) * depthValue / fy
+        let zc = depthValue
+
+        // 6. Transform to world coordinates
+        let pc = simd_float4(xc, yc, zc, 1)
+        let pw = simd_mul(frame.camera.transform, pc)
+
+        return (simd_float3(pw.x, pw.y, pw.z), "depth")
+    }
+
+    // MARK: - Helper Functions
+    private func clamp<T: Comparable>(_ value: T, _ minVal: T, _ maxVal: T) -> T {
+        return min(max(value, minVal), maxVal)
     }
 }
 
@@ -1032,74 +1101,6 @@ class ARViewModel: ObservableObject{
         // ML results are now accessed directly during streaming for better real-time performance
     }
 
-    // MARK: - Depth-Based Point Calculation
-    private func worldPointFromDepth(at location: CGPoint, in arView: ARView) -> (point: simd_float3, method: String)? {
-        guard let frame = arView.session.currentFrame,
-              let depth = frame.sceneDepth?.depthMap else {
-            return nil
-        }
-
-        let depthWidth = CVPixelBufferGetWidth(depth)
-        let depthHeight = CVPixelBufferGetHeight(depth)
-        let viewBounds = arView.bounds
-
-        // 1. Normalize tap location to view coordinates
-        let normView = CGPoint(
-            x: location.x / viewBounds.width,
-            y: location.y / viewBounds.height
-        )
-
-        // 2. Apply display transform to get camera image coordinates
-        let ori = arView.window?.windowScene?.interfaceOrientation ?? .portrait
-        let disp = frame.displayTransform(for: ori, viewportSize: viewBounds.size)
-        let camNorm = normView.applying(disp.inverted())
-
-        // 3. Map to depth pixel coordinates
-        let u = Int(clamp(camNorm.x, 0, 1) * CGFloat(depthWidth))
-        let v = Int(clamp(camNorm.y, 0, 1) * CGFloat(depthHeight))
-
-        // 4. Sample depth with median filtering for noise reduction
-        CVPixelBufferLockBaseAddress(depth, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(depth, .readOnly) }
-
-        let base = CVPixelBufferGetBaseAddress(depth)!.assumingMemoryBound(to: Float32.self)
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(depth) / MemoryLayout<Float32>.size
-        let N = 3
-        var samples: [Float] = []
-
-        for j in max(0, v - N)...min(depthHeight - 1, v + N) {
-            for i in max(0, u - N)...min(depthWidth - 1, u + N) {
-                let d = base[j * bytesPerRow + i]
-                if d.isFinite, d > 0 {
-                    samples.append(d)
-                }
-            }
-        }
-
-        guard !samples.isEmpty else { return nil }
-        samples.sort()
-        let depthValue = samples[samples.count / 2] // median
-
-        // 5. Unproject to camera coordinates using intrinsics
-        let K = frame.camera.intrinsics
-        let fx = K.columns.0.x, fy = K.columns.1.y
-        let cx = K.columns.2.x, cy = K.columns.2.y
-
-        let xc = (Float(u) - cx) * depthValue / fx
-        let yc = (Float(v) - cy) * depthValue / fy
-        let zc = depthValue
-
-        // 6. Transform to world coordinates
-        let pc = simd_float4(xc, yc, zc, 1)
-        let pw = simd_mul(frame.camera.transform, pc)
-
-        return (simd_float3(pw.x, pw.y, pw.z), "depth")
-    }
-
-    // MARK: - Helper Functions
-    private func clamp<T: Comparable>(_ value: T, min minVal: T, max maxVal: T) -> T {
-        return min(max(value, minVal), maxVal)
-    }
 
      }
 
