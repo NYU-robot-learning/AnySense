@@ -64,9 +64,11 @@ class MLInferenceManager: ObservableObject {
     private var modelInputTransform: CGAffineTransform?
 
     // MARK: - Gripper Overlay Properties
-    private var gripperOverlayCIImage: CIImage?
+    private var gripperOpenCIImage: CIImage?
+    private var gripperClosedCIImage: CIImage?
     private var gripperOverlayBuffer: vImage_Buffer?
     private var isUSBStreamingActive: Bool = false
+    private var currentGripperValue: Float = 1.0  // Track latest gripper value
     @Published var enableGripperOverlay: Bool = true  // Default enabled
     @Published var saveDebugFrames: Bool = false     // For testing
     
@@ -129,15 +131,26 @@ class MLInferenceManager: ObservableObject {
 
     // MARK: - Gripper Overlay Methods
     private func loadGripperOverlay() {
-        guard let uiImage = UIImage(named: "gripper_overlay") else {
-            print("Warning: Could not load gripper_overlay image from assets")
-            return
+        // Load open gripper (default/original)
+        if let openImage = UIImage(named: "gripper_overlay") {
+            gripperOpenCIImage = CIImage(image: openImage)
+            print("Open gripper overlay loaded: \(gripperOpenCIImage?.extent ?? .zero)")
+        } else {
+            print("Warning: Could not load gripper_overlay (open) image from assets")
         }
-        gripperOverlayCIImage = CIImage(image: uiImage)
 
-        // Also prepare vImage buffer for high-performance compositing
-        setupGripperOverlayBuffer(from: uiImage)
-        print("Gripper overlay loaded: \(gripperOverlayCIImage?.extent ?? .zero)")
+        // Load closed gripper
+        if let closedImage = UIImage(named: "gripper_closed") {
+            gripperClosedCIImage = CIImage(image: closedImage)
+            print("Closed gripper overlay loaded: \(gripperClosedCIImage?.extent ?? .zero)")
+        } else {
+            print("Warning: Could not load gripper_closed image from assets")
+        }
+
+        // Setup vImage buffer with open gripper as default
+        if let openImage = UIImage(named: "gripper_overlay") {
+            setupGripperOverlayBuffer(from: openImage)
+        }
     }
 
     private func setupGripperOverlayBuffer(from uiImage: UIImage) {
@@ -190,6 +203,20 @@ class MLInferenceManager: ObservableObject {
         return enableGripperOverlay && !isUSBStreamingActive
     }
 
+    private func getCurrentGripperOverlay() -> CIImage? {
+        // Use closed gripper when gripper value < 0.6, otherwise open gripper
+        let isGripperClosed = currentGripperValue < 0.6
+        if saveDebugFrames {
+            print("Gripper state: \(String(format: "%.3f", currentGripperValue)) → \(isGripperClosed ? "CLOSED" : "OPEN")")
+        }
+
+        if isGripperClosed {
+            return gripperClosedCIImage
+        } else {
+            return gripperOpenCIImage
+        }
+    }
+
     private func applyGripperOverlay(to image: CIImage) -> CIImage {
         guard shouldShowGripperOverlay() else {
             return image
@@ -206,7 +233,7 @@ class MLInferenceManager: ObservableObject {
     }
 
     private func applyGripperOverlayCoreImage(to image: CIImage) -> CIImage {
-        guard let gripperOverlay = gripperOverlayCIImage else {
+        guard let gripperOverlay = getCurrentGripperOverlay() else {
             return image
         }
 
@@ -746,7 +773,12 @@ class MLInferenceManager: ObservableObject {
             // Extract values directly (matching old code)
             let outputCount = min(resultArray.count, 10)
             let jointPositions = (0..<outputCount).map { resultArray[$0].floatValue }
-            
+
+            // Update gripper value for overlay switching (7th element, index 6)
+            if jointPositions.count >= 7 {
+                currentGripperValue = jointPositions[6]
+            }
+
             let result = InferenceResult(
                 jointPositions: jointPositions,
                 inferenceTime: inferenceTime
@@ -791,7 +823,12 @@ class MLInferenceManager: ObservableObject {
             // Extract values dynamically based on what the model outputs
             let outputCount = min(resultArray.count, 10)
             let jointPositions = (0..<outputCount).map { resultArray[$0].floatValue }
-            
+
+            // Update gripper value for overlay switching (7th element, index 6)
+            if jointPositions.count >= 7 {
+                currentGripperValue = jointPositions[6]
+            }
+
             let result = InferenceResult(
                 jointPositions: jointPositions,
                 inferenceTime: inferenceTime

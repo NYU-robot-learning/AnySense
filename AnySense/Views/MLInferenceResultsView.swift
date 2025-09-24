@@ -9,18 +9,16 @@ import SwiftUI
 
 struct MLInferenceResultsView: View {
     @ObservedObject var mlManager: MLInferenceManager
-    
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Pick Up Policy")
-                    .foregroundColor(.white)
-                    .font(.headline)
-                    .fontWeight(.semibold)
-            }
-            
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Gripper State")
+                .foregroundColor(.white)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+
             if let result = mlManager.latestResult {
-                ResultsBlock(result: result)
+                GripperBlock(result: result)
             } else {
                 Text("Analyzing...")
                     .foregroundColor(.white.opacity(0.7))
@@ -28,66 +26,59 @@ struct MLInferenceResultsView: View {
                     .italic()
             }
         }
-        .padding(12)
+        .padding(8)
         .background(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: 8)
                 .fill(Color.black.opacity(0.75))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12)
+                    RoundedRectangle(cornerRadius: 8)
                         .stroke(Color.white.opacity(0.2), lineWidth: 1)
                 )
         )
-        .frame(maxWidth: 240)
+        .frame(maxWidth: 160)
     }
 }
 
-// MARK: - Subview
-private struct ResultsBlock: View {
+// MARK: - Gripper Subview
+private struct GripperBlock: View {
     let result: InferenceResult
-    private let labels = ["x", "y", "z", "roll", "pitch", "yaw", "gripper"]
-    
+
+    private var gripperValue: Float {
+        return result.jointPositions.count >= 7 ? result.jointPositions[6] : 0.0
+    }
+
+    private var gripperState: String {
+        return gripperValue < 0.6 ? "CLOSED" : "OPEN"
+    }
+
+    private var stateColor: Color {
+        return gripperValue < 0.6 ? .red : .green
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Joint Positions:")
-                .foregroundColor(.white.opacity(0.8))
-                .font(.caption)
-                .fontWeight(.semibold)
-            
-            ForEach(result.jointPositions.indices, id: \.self) { idx in
-                jointActionRow(for: idx)
-            }
-            
             HStack {
-                Text("Inference:")
+                Text("Value:")
                     .foregroundColor(.white.opacity(0.7))
-                    .font(.caption2)
-                Text("\(Int(result.inferenceTime * 1000))ms")
-                    .foregroundColor(.yellow)
-                    .font(.caption2)
+                    .font(.caption)
+                Text(String(format: "%.3f", gripperValue))
+                    .foregroundColor(.orange)
+                    .font(.caption)
                     .fontWeight(.medium)
+                    .fontDesign(.monospaced)
                 Spacer()
             }
-            .padding(.top, 2)
-        }
-    }
-    
-    private func jointActionRow(for idx: Int) -> some View {
-        let labelText = idx < labels.count ? labels[idx] + ":" : "v\(idx):"
-        let valueColor = idx == 6 ? Color.orange : Color.cyan
-        
-        return HStack {
-            Text(labelText)
-                .foregroundColor(.white.opacity(0.7))
-                .font(.caption2)
-                .frame(width: 50, alignment: .leading)
-            
-            Text(String(format: "%.3f", result.jointPositions[idx]))
-                .foregroundColor(valueColor)
-                .font(.caption2)
-                .fontWeight(.medium)
-                .fontDesign(.monospaced)
-            
-            Spacer()
+
+            HStack {
+                Text("State:")
+                    .foregroundColor(.white.opacity(0.7))
+                    .font(.caption)
+                Text(gripperState)
+                    .foregroundColor(stateColor)
+                    .font(.caption)
+                    .fontWeight(.bold)
+                Spacer()
+            }
         }
     }
 } 
