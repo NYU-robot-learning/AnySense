@@ -16,6 +16,7 @@ import CoreImage
 import UIKit
 import CoreImage.CIFilterBuiltins
 import Combine
+import Accelerate
 //import WebRTC
 
 struct RecordingFiles {
@@ -228,6 +229,7 @@ class ARViewModel: ObservableObject{
     // AR Visualization Manager for 3D pose visualization
     @Published var arVisualizationManager = ARVisualizationManager()
     @Published var goalTapModeEnabled: Bool = false
+    @Published var isUSBStreamingActive: Bool = false
 
 
     public var userFPS: Double?
@@ -250,10 +252,14 @@ class ARViewModel: ObservableObject{
 
     private var combinedRGBTransform: CGAffineTransform?
     private var combinedDepthTransform: CGAffineTransform?
-    
+
     private var rgbOutputPixelBufferUSB: CVPixelBuffer?
     private var depthOutputPixelBufferUSB: CVPixelBuffer?
     private var depthConfidenceOutputPixelBufferUSB: CVPixelBuffer?
+
+    // MARK: - Accelerate Optimization Properties
+    private var rgbTransformBuffer: vImage_Buffer?
+    private var lastTransformImageSize: CGSize = .zero
     // MARK: - Exposed helpers for MLInferenceManager
     func getARSession() -> ARSession {
         return session
@@ -481,11 +487,15 @@ class ARViewModel: ObservableObject{
         displayLink = CADisplayLink(target: self, selector: #selector(sendFrameUSB))
         displayLink?.preferredFrameRateRange = CAFrameRateRange(minimum: Float(self.userFPS!), maximum: Float(self.userFPS!), preferred: Float(self.userFPS!))
         displayLink?.add(to: .main, forMode: .common)
+        isUSBStreamingActive = true
+        mlManager?.setUSBStreamingState(isActive: true)
     }
     
     func stopUSBStreaming() {
         displayLink?.invalidate()
         displayLink = nil
+        isUSBStreamingActive = false
+        mlManager?.setUSBStreamingState(isActive: false)
     }
     
     func setupUSBStreaming() {
@@ -541,10 +551,19 @@ class ARViewModel: ObservableObject{
     
     func killUSBStreaming() {
         self.usbManager.disconnect()
-        
+
         self.rgbOutputPixelBufferUSB = nil
         self.depthOutputPixelBufferUSB = nil
         self.depthConfidenceOutputPixelBufferUSB = nil
+
+        // Clean up vImage buffers
+        if let transformBuffer = rgbTransformBuffer {
+            free(transformBuffer.data)
+            rgbTransformBuffer = nil
+        }
+
+        isUSBStreamingActive = false
+        mlManager?.setUSBStreamingState(isActive: false)
     }
     
 //    func startWiFiStreaming(host: String, port: UInt16) {
@@ -571,16 +590,22 @@ class ARViewModel: ObservableObject{
     private func processDepthStreamData(depthPixelBuffer: CVPixelBuffer, outputBuffer: CVPixelBuffer, isDepth: Bool) -> Data? {
         CVPixelBufferLockBaseAddress(depthPixelBuffer, .readOnly)
         CVPixelBufferLockBaseAddress(outputBuffer, [])
-        
-        let depthCiImage = CIImage(cvPixelBuffer: depthPixelBuffer)
-        let depthTransformedImage = depthCiImage.transformed(by: self.combinedDepthTransform ?? CGAffineTransform.identity)
-        self.ciContext.render(depthTransformedImage, to: outputBuffer)
-        
+
+        // Try optimized depth processing
+        if canUseOptimizedDepthTransform(for: depthPixelBuffer) {
+            processDepthOptimized(depthPixelBuffer, outputBuffer: outputBuffer)
+        } else {
+            // Fallback to Core Image
+            let depthCiImage = CIImage(cvPixelBuffer: depthPixelBuffer)
+            let depthTransformedImage = depthCiImage.transformed(by: self.combinedDepthTransform ?? CGAffineTransform.identity)
+            self.ciContext.render(depthTransformedImage, to: outputBuffer)
+        }
+
         let compressedData = self.usbManager.compressData(from: outputBuffer, isDepth: isDepth)
-        
+
         CVPixelBufferUnlockBaseAddress(outputBuffer, [])
         CVPixelBufferUnlockBaseAddress(depthPixelBuffer, .readOnly)
-        
+
         return compressedData
     }
     
@@ -642,14 +667,21 @@ class ARViewModel: ObservableObject{
         DispatchQueue.global(qos: .userInitiated).async {
             CVPixelBufferLockBaseAddress(rgbPixelBuffer, .readOnly)
             CVPixelBufferLockBaseAddress(self.rgbOutputPixelBufferUSB!, [])
-            
-            let rgbCiImage = CIImage(cvPixelBuffer: rgbPixelBuffer)
-            let rgbTransformedImage = rgbCiImage.transformed(by: self.combinedRGBTransform!)
 
-            guard let rgbCgImage = self.ciContext.createCGImage(rgbTransformedImage, from: rgbTransformedImage.extent) else{
-                return
+            // Try optimized path first
+            let rgbImageData: Data?
+            if self.canUseOptimizedTransform(for: rgbPixelBuffer) {
+                rgbImageData = self.processRGBOptimized(rgbPixelBuffer)
+            } else {
+                // Fallback to Core Image pipeline
+                let rgbCiImage = CIImage(cvPixelBuffer: rgbPixelBuffer)
+                let rgbTransformedImage = rgbCiImage.transformed(by: self.combinedRGBTransform!)
+
+                guard let rgbCgImage = self.ciContext.createCGImage(rgbTransformedImage, from: rgbTransformedImage.extent) else{
+                    return
+                }
+                rgbImageData = UIImage(cgImage: rgbCgImage).jpegData(compressionQuality: 0.5)
             }
-            let rgbImageData = UIImage(cgImage: rgbCgImage).jpegData(compressionQuality: 0.5)
 
             record3dHeader.rgbSize = UInt32(rgbImageData!.count)
             
@@ -1008,6 +1040,104 @@ class ARViewModel: ObservableObject{
             }
         }
         return filteredImage.transformed(by: self.combinedDepthTransform ?? CGAffineTransform.identity) //.cropped(to: cropRect)
+    }
+
+    // MARK: - Accelerate Optimizations
+    private func canUseOptimizedTransform(for pixelBuffer: CVPixelBuffer) -> Bool {
+        // Only use optimized path for simple transforms (scale + translate)
+        // Skip if transform contains rotation or complex operations
+        guard let transform = combinedRGBTransform else { return false }
+
+        // Check if transform is approximately a simple scale/translate
+        let hasRotation = abs(transform.b) > 0.001 || abs(transform.c) > 0.001
+        return !hasRotation
+    }
+
+    private func processRGBOptimized(_ pixelBuffer: CVPixelBuffer) -> Data? {
+        // For now, use a simple direct conversion approach
+        // This bypasses the expensive CIImage -> CGImage -> UIImage pipeline
+
+        guard let cgImage = createCGImageDirect(from: pixelBuffer) else {
+            return nil
+        }
+
+        return UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.5)
+    }
+
+    private func createCGImageDirect(from pixelBuffer: CVPixelBuffer) -> CGImage? {
+        let width = CVPixelBufferGetWidth(pixelBuffer)
+        let height = CVPixelBufferGetHeight(pixelBuffer)
+
+        guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else { return nil }
+
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+
+        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue)
+
+        guard let context = CGContext(
+            data: baseAddress,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo.rawValue
+        ) else { return nil }
+
+        return context.makeImage()
+    }
+
+    private func canUseOptimizedDepthTransform(for pixelBuffer: CVPixelBuffer) -> Bool {
+        guard let transform = combinedDepthTransform else { return false }
+        // Check if transform is simple enough for vImage optimization
+        let hasRotation = abs(transform.b) > 0.001 || abs(transform.c) > 0.001
+        return !hasRotation
+    }
+
+    private func processDepthOptimized(_ inputBuffer: CVPixelBuffer, outputBuffer: CVPixelBuffer) {
+        // Simple memcpy for identity or simple scaling transforms
+        // This avoids Core Image overhead for depth data
+
+        let inputWidth = CVPixelBufferGetWidth(inputBuffer)
+        let inputHeight = CVPixelBufferGetHeight(inputBuffer)
+        let outputWidth = CVPixelBufferGetWidth(outputBuffer)
+        let outputHeight = CVPixelBufferGetHeight(outputBuffer)
+
+        guard let inputData = CVPixelBufferGetBaseAddress(inputBuffer),
+              let outputData = CVPixelBufferGetBaseAddress(outputBuffer) else {
+            return
+        }
+
+        let inputBytesPerRow = CVPixelBufferGetBytesPerRow(inputBuffer)
+        let outputBytesPerRow = CVPixelBufferGetBytesPerRow(outputBuffer)
+
+        if inputWidth == outputWidth && inputHeight == outputHeight {
+            // Direct copy for same-size buffers
+            let totalBytes = min(inputHeight * inputBytesPerRow, outputHeight * outputBytesPerRow)
+            memcpy(outputData, inputData, totalBytes)
+        } else {
+            // Use vImage for scaling if available
+            var sourceBuffer = vImage_Buffer(
+                data: inputData,
+                height: vImagePixelCount(inputHeight),
+                width: vImagePixelCount(inputWidth),
+                rowBytes: inputBytesPerRow
+            )
+
+            var destBuffer = vImage_Buffer(
+                data: outputData,
+                height: vImagePixelCount(outputHeight),
+                width: vImagePixelCount(outputWidth),
+                rowBytes: outputBytesPerRow
+            )
+
+            // Use vImage scaling for better performance than Core Image
+            let error = vImageScale_Planar16F(&sourceBuffer, &destBuffer, nil, vImage_Flags(kvImageNoFlags))
+            if error != kvImageNoError {
+                print("vImage scaling failed: \(error)")
+            }
+        }
     }
     
     private func saveBinaryDepthData(depthPixelBuffer: CVPixelBuffer) {

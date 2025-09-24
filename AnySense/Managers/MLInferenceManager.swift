@@ -17,6 +17,7 @@ import CoreImage
 import ARKit
 import simd
 import UIKit
+import Accelerate
 
 // MARK: - ML Inference Results
 struct InferenceResult {
@@ -61,6 +62,13 @@ class MLInferenceManager: ObservableObject {
     private let ciContext: CIContext
     private var modelInputSize = CGSize(width: 224, height: 224)
     private var modelInputTransform: CGAffineTransform?
+
+    // MARK: - Gripper Overlay Properties
+    private var gripperOverlayCIImage: CIImage?
+    private var gripperOverlayBuffer: vImage_Buffer?
+    private var isUSBStreamingActive: Bool = false
+    @Published var enableGripperOverlay: Bool = true  // Default enabled
+    @Published var saveDebugFrames: Bool = false     // For testing
     
     // MARK: - Inference Settings
     enum InferenceFrequency: CaseIterable {
@@ -96,7 +104,8 @@ class MLInferenceManager: ObservableObject {
         self.modelManager = modelManager
         self.ciContext = CIContext()
         loadActiveModel()
-        
+        loadGripperOverlay()
+
         // Listen for active model changes
         modelManager.$activeModel
             .receive(on: DispatchQueue.main)
@@ -111,6 +120,149 @@ class MLInferenceManager: ObservableObject {
         model = nil
         latestResult = nil
         cancellables.removeAll()
+
+        // Clean up vImage buffer
+        if let buffer = gripperOverlayBuffer {
+            free(buffer.data)
+        }
+    }
+
+    // MARK: - Gripper Overlay Methods
+    private func loadGripperOverlay() {
+        guard let uiImage = UIImage(named: "gripper_overlay") else {
+            print("Warning: Could not load gripper_overlay image from assets")
+            return
+        }
+        gripperOverlayCIImage = CIImage(image: uiImage)
+
+        // Also prepare vImage buffer for high-performance compositing
+        setupGripperOverlayBuffer(from: uiImage)
+        print("Gripper overlay loaded: \(gripperOverlayCIImage?.extent ?? .zero)")
+    }
+
+    private func setupGripperOverlayBuffer(from uiImage: UIImage) {
+        guard let cgImage = uiImage.cgImage else { return }
+
+        let width = cgImage.width
+        let height = cgImage.height
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        let bufferLength = height * bytesPerRow
+
+        guard let data = malloc(bufferLength) else {
+            print("Warning: Could not allocate memory for gripper overlay buffer")
+            return
+        }
+
+        var buffer = vImage_Buffer(
+            data: data,
+            height: vImagePixelCount(height),
+            width: vImagePixelCount(width),
+            rowBytes: bytesPerRow
+        )
+
+        // Convert CGImage to vImage buffer
+        var format = vImage_CGImageFormat(
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            colorSpace: nil,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            version: 0,
+            decode: nil,
+            renderingIntent: .defaultIntent
+        )
+
+        let error = vImageBuffer_InitWithCGImage(&buffer, &format, nil, cgImage, vImage_Flags(kvImageNoFlags))
+        if error == kvImageNoError {
+            gripperOverlayBuffer = buffer
+        } else {
+            free(data)
+            print("Warning: Failed to create vImage buffer for gripper overlay: \(error)")
+        }
+    }
+
+    func setUSBStreamingState(isActive: Bool) {
+        isUSBStreamingActive = isActive
+        print("USB streaming state: \(isActive ? "ON" : "OFF") - Gripper overlay: \(shouldShowGripperOverlay() ? "ENABLED" : "DISABLED")")
+    }
+
+    private func shouldShowGripperOverlay() -> Bool {
+        return enableGripperOverlay && !isUSBStreamingActive
+    }
+
+    private func applyGripperOverlay(to image: CIImage) -> CIImage {
+        guard shouldShowGripperOverlay() else {
+            return image
+        }
+
+        // Fallback to Core Image if vImage buffer not available
+        guard let _ = gripperOverlayBuffer else {
+            return applyGripperOverlayCoreImage(to: image)
+        }
+
+        // For now, use Core Image fallback while we implement vImage compositing
+        // The main performance improvement will come from avoiding the overlay entirely when not needed
+        return applyGripperOverlayCoreImage(to: image)
+    }
+
+    private func applyGripperOverlayCoreImage(to image: CIImage) -> CIImage {
+        guard let gripperOverlay = gripperOverlayCIImage else {
+            return image
+        }
+
+        // Scale gripper overlay to match model input size
+        let imageSize = image.extent.size
+        let overlaySize = gripperOverlay.extent.size
+
+        let scaleX = imageSize.width / overlaySize.width
+        let scaleY = imageSize.height / overlaySize.height
+        let scale = min(scaleX, scaleY) // Maintain aspect ratio
+
+        let scaledOverlay = gripperOverlay.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+
+        // Position gripper at bottom with no offset (0,0 positioning)
+        let positionedOverlay = scaledOverlay
+
+        // Composite using source-over to preserve alpha transparency
+        guard let compositeFilter = CIFilter(name: "CISourceOverCompositing") else {
+            print("Warning: Could not create composite filter")
+            return image
+        }
+
+        compositeFilter.setValue(positionedOverlay, forKey: kCIInputImageKey)
+        compositeFilter.setValue(image, forKey: kCIInputBackgroundImageKey)
+
+        return compositeFilter.outputImage ?? image
+    }
+
+    // MARK: - Debug Frame Saving
+    private func saveDebugFrame(_ image: CIImage, prefix: String) {
+        guard saveDebugFrames else { return }
+
+        let timestamp = Int(Date().timeIntervalSince1970 * 1000)
+        let filename = "\(prefix)_\(timestamp).png"
+
+        // Get Documents directory
+        guard let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            print("Warning: Could not access Documents directory")
+            return
+        }
+
+        let fileURL = documentsDirectory.appendingPathComponent(filename)
+
+        // Convert CIImage to Data
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return }
+        guard let data = ciContext.pngRepresentation(of: image, format: .RGBA8, colorSpace: colorSpace) else {
+            print("Warning: Could not create PNG data for debug frame")
+            return
+        }
+
+        do {
+            try data.write(to: fileURL)
+            print("Debug frame saved: \(fileURL.lastPathComponent)")
+        } catch {
+            print("Warning: Could not save debug frame: \(error)")
+        }
     }
     
     // MARK: - Model Loading
@@ -413,8 +565,19 @@ class MLInferenceManager: ObservableObject {
             // Server path rotates images by 180° overall; replicate using EXIF .down
             scaledImage = scaledImage.oriented(.down)
         }
+
+        // Save original scaled image for debugging
+        saveDebugFrame(scaledImage, prefix: "vqbet_original")
+
+        // Apply gripper overlay if enabled and USB streaming is off
+        if shouldShowGripperOverlay() {
+            scaledImage = applyGripperOverlay(to: scaledImage)
+            // Save image with overlay for debugging
+            saveDebugFrame(scaledImage, prefix: "vqbet_with_overlay")
+        }
+
         let cropRect = CGRect(origin: .zero, size: inputSize)
-        
+
         ciContext.render(scaledImage, to: outputBuffer, bounds: cropRect, colorSpace: CGColorSpaceCreateDeviceRGB())
         print("Image processed for VQ-BeT: \(inputSize)")
         
@@ -509,8 +672,19 @@ class MLInferenceManager: ObservableObject {
         if applyServerImageOrientation {
             scaledImage = scaledImage.oriented(.down)
         }
+
+        // Save original scaled image for debugging
+        saveDebugFrame(scaledImage, prefix: "standard_original")
+
+        // Apply gripper overlay if enabled and USB streaming is off
+        if shouldShowGripperOverlay() {
+            scaledImage = applyGripperOverlay(to: scaledImage)
+            // Save image with overlay for debugging
+            saveDebugFrame(scaledImage, prefix: "standard_with_overlay")
+        }
+
         let cropRect = CGRect(origin: .zero, size: modelInputSize)
-        
+
         // Render using the same CIContext approach as ARViewContainer
         ciContext.render(scaledImage, to: outputBuffer, bounds: cropRect, colorSpace: CGColorSpaceCreateDeviceRGB())
         print("Image processed for inference: \(modelInputSize)")

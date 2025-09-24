@@ -53,7 +53,7 @@ struct ActionTransformUtils {
     // Convention used here mirrors ARVisualizationManager's historical mapping with a corrected Z sign:
     //  - policy: [down, right, backward]
     //  - camera: x=right, y=up, z forward is -Z in ARKit conventions → use z = -backward
-    static func policyToCameraEulerAction(_ policyAction7: [Float], rotationUnit: RotationUnit = .eulerXYZ, quarterTurns: Int = 0) -> [Float] {
+    static func policyToCameraEulerAction(_ policyAction7: [Float], rotationUnit: RotationUnit = .eulerXYZ) -> [Float] {
         guard policyAction7.count >= 7 else { return policyAction7 }
         let ml_x = policyAction7[0]  // down
         let ml_y = policyAction7[1]  // right
@@ -63,11 +63,10 @@ struct ActionTransformUtils {
         let r3 = policyAction7[5]
         let gr = policyAction7[6]
         
-        // Translation mapping
-        var cam_t = SIMD3<Float>(ml_y, -ml_x, -ml_z)
-        if quarterTurns % 4 != 0 {
-            cam_t = rotateXY(cam_t, quarterTurns: quarterTurns)
-        }
+        // Translation mapping (labels → CAMERA) using inverse of goal mapping:
+        // labels: x = -x_cam, y = -z_cam, z = -y_cam
+        // => camera: x = -x_l, y = -z_l, z = -y_l
+        let cam_t = SIMD3<Float>(-ml_x, -ml_z, -ml_y)
         
         // Rotation mapping → always return Euler xyz in CAMERA frame
         var cam_euler: SIMD3<Float>
@@ -77,11 +76,6 @@ struct ActionTransformUtils {
         case .axisAngle:
             let R_cam = rotationMatrixFromAxisAngle(axisAngle: SIMD3<Float>(r1, r2, r3))
             cam_euler = eulerXYZ(from: matrixFromRotationAndTranslation(R_cam, t: SIMD3<Float>(0,0,0)))
-        }
-        if quarterTurns % 4 != 0 {
-            // Adjust yaw by quarter turns around camera Z
-            let k = Float(quarterTurns % 4)
-            cam_euler.z += k * (.pi / 2)
         }
         
         return [cam_t.x, cam_t.y, cam_t.z, cam_euler.x, cam_euler.y, cam_euler.z, gr]
@@ -156,18 +150,18 @@ struct ActionTransformUtils {
     }
 
     // Rotate a vector in camera XY plane by 90° increments (right-handed, +Z out of screen)
-    private static func rotateXY(_ v: SIMD3<Float>, quarterTurns: Int) -> SIMD3<Float> {
-        switch ((quarterTurns % 4) + 4) % 4 { // normalize to 0..3
-        case 1: // +90° (counterclockwise): (x,y) -> (-y, x)
-            return SIMD3<Float>(-v.y, v.x, v.z)
-        case 2: // 180°
-            return SIMD3<Float>(-v.x, -v.y, v.z)
-        case 3: // -90° (clockwise): (x,y) -> (y, -x)
-            return SIMD3<Float>(v.y, -v.x, v.z)
-        default:
-            return v
-        }
-    }
+    // private static func rotateXY(_ v: SIMD3<Float>) -> SIMD3<Float> {
+    //     switch ((quarterTurns % 4) + 4) % 4 { // normalize to 0..3
+    //     case 1: // +90° (counterclockwise): (x,y) -> (-y, x)
+    //         return SIMD3<Float>(-v.y, v.x, v.z)
+    //     case 2: // 180°
+    //         return SIMD3<Float>(-v.x, -v.y, v.z)
+    //     case 3: // -90° (clockwise): (x,y) -> (y, -x)
+    //         return SIMD3<Float>(v.y, -v.x, v.z)
+    //     default:
+    //         return v
+    //     }
+    // }
     
     // Extract Euler 'xyz' (radians) from 4x4
     private static func eulerXYZ(from T: simd_float4x4) -> SIMD3<Float> {

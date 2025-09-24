@@ -76,6 +76,10 @@ class ARVisualizationManager: ObservableObject {
     // Debug controls
     var debugLoggingEnabled: Bool = true
     var debugAlwaysDrawArrow: Bool = false
+    // Visualization adjustments
+    var applyEndOffset: Bool = true            // apply labels-forward (+Y_label) → -Z_camera offset
+    var endOffsetMeters: Float = 0.05          // meters; matches training shift used in labels.json mapping
+    var useMagnitudeConfidence: Bool = false   // if true, scale color by delta magnitude; otherwise constant
     
     // MARK: - Initialization 
     init() {
@@ -269,33 +273,47 @@ class ARVisualizationManager: ObservableObject {
             )
         )
         let deltaTranslation = rotationWorldFromCamera * cameraDeltaTranslation
+        if debugLoggingEnabled {
+            func fmt(_ f: Float) -> String { String(format: "%.3f", f) }
+            func fmt3(_ v: SIMD3<Float>) -> String { "(\(fmt(v.x)), \(fmt(v.y)), \(fmt(v.z)))" }
+            print("[Viz] Δcam \(fmt3(cameraDeltaTranslation)) → Δworld \(fmt3(deltaTranslation))")
+        }
         
         // ML coordinate transform applied
         
-        // Update position tracking
-        let previousPosition = currentWorldPosition
-        currentWorldPosition = currentWorldPosition + deltaTranslation
-        
-        // Only create movement arrow if there's meaningful movement and we have a previous position
+        // Get current camera position relative to world origin
+        let currentCameraPosition = SIMD3<Float>(
+            cameraTransform.columns.3.x,
+            cameraTransform.columns.3.y,
+            cameraTransform.columns.3.z
+        ) - worldOrigin
+
+        // Show ML policy arrow from current camera position, not accumulated position
+        let targetPosition = currentCameraPosition + deltaTranslation
+
+        // Only create movement arrow if there's meaningful movement
         let movementMagnitude = length(deltaTranslation)
         // Movement magnitude calculated
         if movementMagnitude > 0.005 || debugAlwaysDrawArrow { // draw even if tiny in debug
             createMovementArrow(
-                from: previousPosition,
-                to: currentWorldPosition,
+                from: currentCameraPosition,
+                to: targetPosition,
                 confidence: confidence,
                 timestamp: timestamp
             )
         }
+
+        // Update tracking position to current camera position (not accumulated)
+        currentWorldPosition = currentCameraPosition
         
         // Position updated with movement delta
     }
     
     private func interpretMLDirections(_ jointActions: [Float]) -> (translation: SIMD3<Float>, rotation: simd_quatf, confidence: Float) {
-        // Use unified policy→camera mapping for consistency with robot path
+        // Map policy action → CAMERA frame (translation and Euler rotation)
         let action7 = Array(jointActions.prefix(7))
-        // let quarterTurns: Int
-        // // Map device interface orientation to quarter turns around camera Z
+        // Determine device interface orientation → quarter turns around camera Z
+        // var quarterTurns: Int = 0
         // if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
         //     switch windowScene.interfaceOrientation {
         //     case .landscapeLeft:
@@ -307,31 +325,20 @@ class ARVisualizationManager: ObservableObject {
         //     default:
         //         quarterTurns = 0
         //     }
-        // } else {
-        //     quarterTurns = 0
         // }
-        // let mapped = ActionTransformUtils.policyToCameraEulerAction(action7, rotationUnit: .eulerXYZ, quarterTurns: quarterTurns)
-        // let translation = SIMD3<Float>(mapped[0], mapped[1], mapped[2])
-        // let rotation = eulerToQuaternion(roll: mapped[3], pitch: mapped[4], yaw: mapped[5])
-        
-        // // Confidence heuristic: translation magnitude plus rotation magnitude
-        // let translationMagnitude = length(translation)
-        // let rotationMagnitude = sqrt(mapped[3] * mapped[3] + mapped[4] * mapped[4] + mapped[5] * mapped[5])
-        // let confidence = min(1.0, (translationMagnitude * 10 + rotationMagnitude) / 2.0)
+        let mapped = ActionTransformUtils.policyToCameraEulerAction(action7, rotationUnit: .eulerXYZ)
+        var translationCamera = SIMD3<Float>(mapped[0], mapped[1], mapped[2])
+        // Optional end-offset in CAMERA frame: labels forward (+Y_label) == -Z_camera
+        if applyEndOffset {
+            translationCamera += SIMD3<Float>(0, 0, -endOffsetMeters)
+        }
+        let rotationCamera = eulerToQuaternion(roll: mapped[3], pitch: mapped[4], yaw: mapped[5])
 
+        // Confidence: constant by default; optionally scale by translation magnitude
+        let confidence: Float = useMagnitudeConfidence ? min(1.0, max(0.0, length(translationCamera) * 10.0)) : 1.0
 
-        // take policy output, transform to camera frame with camera transform and then labels with 5cm offset and in arkit convention
-        let camera_transform = getCurrentCameraTransform()
-        let camera_translation = SIMD3<Float>(camera_transform.columns.3.x, camera_transform.columns.3.y, camera_transform.columns.3.z)
-        let camera_rotation = eulerToQuaternion(roll: camera_transform.columns.0.x, pitch: camera_transform.columns.0.y, yaw: camera_transform.columns.0.z)
-        let policy_translation_camera = camera_transform * SIMD4<Float>(jointActions[0], jointActions[1], jointActions[2], 1)
-        let policy_translation_camera_labels = SIMD3<Float>(-policy_translation_camera.x, -policy_translation_camera.z + 0.05, -policy_translation_camera.y)
-        let policy_translation_camera_labels_rotation = camera_rotation.act(policy_translation_camera_labels)
-        let translation = policy_translation_camera_labels_rotation
-        let rotation = camera_rotation
-        let confidence: Float = 1.0
-
-        return (translation, rotation, confidence)
+        // Return CAMERA-frame delta; caller will rotate to WORLD frame using current camera pose
+        return (translationCamera, rotationCamera, confidence)
     }
     
     private func createMovementArrow(from: SIMD3<Float>, to: SIMD3<Float>, confidence: Float, timestamp: TimeInterval) {
