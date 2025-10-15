@@ -155,6 +155,25 @@ struct ModelMetadata {
         return requiresGoalPoint ? .pointConditioned : .standard
     }
     
+    var temporalFrames: Int {
+        // Detect temporal dimension in image input shape
+        // [1,3,3,224,224] → 3 frames, [1,3,224,224] → 1 frame
+        guard let (_, desc) = firstImageLikeInput() else { return 1 }
+        
+        if desc.type == .multiArray, let shape = desc.multiArrayConstraint?.shape {
+            let dims = shape.map { $0.intValue }
+            // Check if this is a temporal model: [B, T, C, H, W] where T > 1
+            if dims.count == 5 && dims[1] > 1 && dims[2] == 3 {
+                return dims[1]  // Return temporal dimension
+            }
+        }
+        return 1  // Default to single frame
+    }
+    
+    var isTemporalModel: Bool {
+        return temporalFrames > 1
+    }
+    
     var requiresGoalPoint: Bool {
         // Heuristic: presence of a second non-image input named "goal_point" or a small (1x3) array input
         if allInputsByName.keys.contains("goal_point") { return true }

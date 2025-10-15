@@ -1228,6 +1228,13 @@ class ARViewModel: ObservableObject{
         // Provide AR session access to ML manager for goal and odometry
         self.mlManager?.setARViewContainer(self)
         
+        // Forward mlManager's property changes to arViewModel so SwiftUI updates
+        self.mlManager?.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+        
         // ML results are now accessed directly during streaming for better real-time performance
     }
 

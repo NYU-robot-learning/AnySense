@@ -51,6 +51,14 @@ class MLInferenceManager: ObservableObject {
     // Goal conditioning mode (point-conditioned models use 3D goals)
     private var goalDimension: Int = 3
     
+    // MARK: - Frame Buffering for Temporal Models
+    private struct FrameBufferEntry {
+        let mlArray: MLMultiArray  // Pre-processed [1,3,H,W] frame
+        let goalPoint: [Float]?     // Goal at time of capture
+    }
+    private var frameBuffer: [FrameBufferEntry] = []
+    private var maxBufferSize: Int = 1  // Set by model metadata (1 for single-frame, 3 for temporal)
+    
     // MARK: - Model Management
     private var modelManager: ModelManager
     private var cancellables = Set<AnyCancellable>()
@@ -66,10 +74,14 @@ class MLInferenceManager: ObservableObject {
     // MARK: - Gripper Overlay Properties
     private var gripperOpenCIImage: CIImage?
     private var gripperClosedCIImage: CIImage?
+    private var gripperOpenUIImage: UIImage?
+    private var gripperClosedUIImage: UIImage?
     private var gripperOverlayBuffer: vImage_Buffer?
     private var isUSBStreamingActive: Bool = false
     private var currentGripperValue: Float = 1.0  // Track latest gripper value
-    @Published var enableGripperOverlay: Bool = true  // Default enabled
+    @Published var enableGripperOverlay: Bool = true  // Default enabled (for model input)
+    @Published var showGripperOverlayOnScreen: Bool = true  // Show overlay on AR view
+    @Published var currentGripperOverlayImage: UIImage?  // Current overlay image for display
     @Published var saveDebugFrames: Bool = false     // For testing
     
     // MARK: - Inference Settings
@@ -134,6 +146,7 @@ class MLInferenceManager: ObservableObject {
         // Load open gripper (default/original)
         if let openImage = UIImage(named: "gripper_overlay") {
             gripperOpenCIImage = CIImage(image: openImage)
+            gripperOpenUIImage = openImage
             print("Open gripper overlay loaded: \(gripperOpenCIImage?.extent ?? .zero)")
         } else {
             print("Warning: Could not load gripper_overlay (open) image from assets")
@@ -142,6 +155,7 @@ class MLInferenceManager: ObservableObject {
         // Load closed gripper
         if let closedImage = UIImage(named: "gripper_closed") {
             gripperClosedCIImage = CIImage(image: closedImage)
+            gripperClosedUIImage = closedImage
             print("Closed gripper overlay loaded: \(gripperClosedCIImage?.extent ?? .zero)")
         } else {
             print("Warning: Could not load gripper_closed image from assets")
@@ -151,6 +165,28 @@ class MLInferenceManager: ObservableObject {
         if let openImage = UIImage(named: "gripper_overlay") {
             setupGripperOverlayBuffer(from: openImage)
         }
+        
+        // Set initial overlay image for display
+        Task { @MainActor in
+            updateGripperOverlayDisplay()
+        }
+    }
+    
+    @MainActor
+    private func updateGripperOverlayDisplay() {
+        guard showGripperOverlayOnScreen && !isUSBStreamingActive else {
+            currentGripperOverlayImage = nil
+            return
+        }
+        
+        let isGripperClosed = currentGripperValue < 0.6
+        let imageToShow = isGripperClosed ? gripperClosedUIImage : gripperOpenUIImage
+        
+        print("DEBUG: Updating gripper overlay - value: \(String(format: "%.3f", currentGripperValue)), closed: \(isGripperClosed)")
+        
+        // Update published property (automatically triggers objectWillChange)
+        currentGripperOverlayImage = imageToShow
+        print("DEBUG: Gripper overlay image updated: \(isGripperClosed ? "CLOSED" : "OPEN")")
     }
 
     private func setupGripperOverlayBuffer(from uiImage: UIImage) {
@@ -197,6 +233,9 @@ class MLInferenceManager: ObservableObject {
     func setUSBStreamingState(isActive: Bool) {
         isUSBStreamingActive = isActive
         print("USB streaming state: \(isActive ? "ON" : "OFF") - Gripper overlay: \(shouldShowGripperOverlay() ? "ENABLED" : "DISABLED")")
+        Task { @MainActor in
+            updateGripperOverlayDisplay()
+        }
     }
 
     private func shouldShowGripperOverlay() -> Bool {
@@ -299,6 +338,8 @@ class MLInferenceManager: ObservableObject {
             // No active compiled model available
             model = nil
             modelMetadata = nil
+            frameBuffer.removeAll()
+            maxBufferSize = 1
             return
         }
         
@@ -307,7 +348,17 @@ class MLInferenceManager: ObservableObject {
             model = loadedModel
             
             // Extract model metadata for type detection
-            modelMetadata = try ModelMetadata(from: loadedModel)
+            let metadata = try ModelMetadata(from: loadedModel)
+            modelMetadata = metadata
+            
+            // Configure frame buffer based on model's temporal requirements
+            maxBufferSize = metadata.temporalFrames
+            frameBuffer.removeAll()
+            
+            print("Model loaded: \(activeModel.name)")
+            print("  Temporal frames: \(metadata.temporalFrames)")
+            print("  Goal conditioning: \(metadata.requiresGoalPoint)")
+            print("  Buffer size: \(maxBufferSize)")
             
             // 224x224 input for all models
             modelInputSize = CGSize(width: 224, height: 224)
@@ -317,12 +368,14 @@ class MLInferenceManager: ObservableObject {
             goalDimension = 3
             
             // Clear goal point if switching to non-point-conditioned model
-            if modelMetadata?.requiresGoalPoint == false {
+            if metadata.requiresGoalPoint == false {
                 currentGoalPoint = nil
             }
         } catch {
             model = nil
             modelMetadata = nil
+            frameBuffer.removeAll()
+            maxBufferSize = 1
         }
     }
     
@@ -420,10 +473,14 @@ class MLInferenceManager: ObservableObject {
     func performInference(on pixelBuffer: CVPixelBuffer, timestamp: CFTimeInterval = CACurrentMediaTime()) {
         guard isInferenceEnabled,
               let model = model,
-              let metadata = modelMetadata else { return }
+              let metadata = modelMetadata else { 
+            print("DEBUG: Inference skipped - enabled: \(isInferenceEnabled), model: \(model != nil), metadata: \(modelMetadata != nil)")
+            return 
+        }
         
         // Check if goal point is required but not set
         if metadata.requiresGoalPoint && currentGoalPoint == nil {
+            print("DEBUG: Inference skipped - goal point required but not set")
             return // Skip inference until goal point is set
         }
         
@@ -438,6 +495,7 @@ class MLInferenceManager: ObservableObject {
         do {
             modelInput = try prepareModelInput(pixelBuffer, metadata: metadata)
         } catch {
+            print("ERROR: Failed to prepare model input: \(error)")
             return
         }
         
@@ -448,12 +506,14 @@ class MLInferenceManager: ObservableObject {
             
             autoreleasepool {
                 do {
+                    print("DEBUG: Running model prediction...")
                     let output = try model.prediction(from: modelInput)
+                    print("DEBUG: Model prediction succeeded")
                     
                     let inferenceTime = CACurrentMediaTime() - startTime
                     self.processInferenceResults(output, inferenceTime: inferenceTime)
                 } catch {
-                    // Inference failed - continue processing
+                    print("ERROR: Model inference failed: \(error)")
                 }
             }
         }
@@ -461,6 +521,7 @@ class MLInferenceManager: ObservableObject {
     
     // MARK: - Dynamic Input Preparation
     private func prepareModelInput(_ pixelBuffer: CVPixelBuffer, metadata: ModelMetadata) throws -> MLFeatureProvider {
+        print("DEBUG: Preparing input for \(metadata.modelType.displayName) model")
         switch metadata.modelType {
         case .pointConditioned:
             return try prepareVQBeTInput(pixelBuffer, metadata: metadata)
@@ -478,8 +539,20 @@ class MLInferenceManager: ObservableObject {
         let imageInputName = metadata.getImageInputName() ?? "camera_image"
         let goalInputName = metadata.getGoalInputName() ?? "goal_point"
         
-        // Determine expected image input rank from the actual model description (fallback to 4)
-        let expectedImageRank: Int = {
+        // Process current frame and add to buffer
+        let processedFrame = try processFrame(pixelBuffer, targetSize: CGSize(width: 224, height: 224), debugPrefix: "point_conditioned")
+        let bufferEntry = FrameBufferEntry(mlArray: processedFrame, goalPoint: goalPointArray)
+        frameBuffer.append(bufferEntry)
+        
+        // Trim buffer to maxBufferSize
+        if frameBuffer.count > maxBufferSize {
+            frameBuffer.removeFirst(frameBuffer.count - maxBufferSize)
+        }
+        
+        let temporalFrames = metadata.temporalFrames
+        
+        // Determine expected rank from model
+        let expectedRank: Int = {
             if let d = model?.modelDescription.inputDescriptionsByName[imageInputName],
                d.type == .multiArray,
                let shape = d.multiArrayConstraint?.shape {
@@ -488,33 +561,108 @@ class MLInferenceManager: ObservableObject {
             return 4
         }()
         
-        // Process image to match expected rank (support 4D [1,3,H,W] and 5D [1,1,3,H,W])
-        let imageArray = try processFrameForVQBeT(
-            pixelBuffer,
-            inputSize: CGSize(width: 224, height: 224),
-            expectedRank: expectedImageRank
-        )
+        print("DEBUG: Point-conditioned model - temporalFrames: \(temporalFrames), expectedRank: \(expectedRank), bufferSize: \(frameBuffer.count)")
         
-        // Prepare goal array to match model's expected shape when available
+        // Build image array based on temporal requirements
+        let imageArray: MLMultiArray
+        if temporalFrames > 1 {
+            // Temporal model: stack frames into [1,T,3,H,W]
+            let framesToUse = min(temporalFrames, frameBuffer.count)
+            let paddingNeeded = temporalFrames - framesToUse
+            
+            imageArray = try MLMultiArray(shape: [1, NSNumber(value: temporalFrames), 3, 224, 224], dataType: .float32)
+            
+            // Pad with repeated first frame if needed
+            for t in 0..<paddingNeeded {
+                let srcFrame = frameBuffer[0].mlArray
+                for c in 0..<3 {
+                    for h in 0..<224 {
+                        for w in 0..<224 {
+                            let value = srcFrame[[0, NSNumber(value: c), NSNumber(value: h), NSNumber(value: w)]]
+                            imageArray[[0, NSNumber(value: t), NSNumber(value: c), NSNumber(value: h), NSNumber(value: w)]] = value
+                        }
+                    }
+                }
+            }
+            
+            // Copy actual frames
+            for (idx, entry) in frameBuffer.suffix(framesToUse).enumerated() {
+                let t = paddingNeeded + idx
+                let srcFrame = entry.mlArray
+                for c in 0..<3 {
+                    for h in 0..<224 {
+                        for w in 0..<224 {
+                            let value = srcFrame[[0, NSNumber(value: c), NSNumber(value: h), NSNumber(value: w)]]
+                            imageArray[[0, NSNumber(value: t), NSNumber(value: c), NSNumber(value: h), NSNumber(value: w)]] = value
+                        }
+                    }
+                }
+            }
+        } else {
+            // Single-frame model: check if we need to add temporal dimension
+            let latestFrame = frameBuffer.last!.mlArray
+            
+            if expectedRank == 5 {
+                // Model expects [1,1,3,H,W] - add temporal dimension
+                imageArray = try MLMultiArray(shape: [1, 1, 3, 224, 224], dataType: .float32)
+                for c in 0..<3 {
+                    for h in 0..<224 {
+                        for w in 0..<224 {
+                            let value = latestFrame[[0, NSNumber(value: c), NSNumber(value: h), NSNumber(value: w)]]
+                            imageArray[[0, 0, NSNumber(value: c), NSNumber(value: h), NSNumber(value: w)]] = value
+                        }
+                    }
+                }
+            } else {
+                // Model expects [1,3,H,W] - use directly
+                imageArray = latestFrame
+            }
+        }
+        
+        // Prepare goal array based on model's expected shape
         let goalArray: MLMultiArray = {
             if let d = model?.modelDescription.inputDescriptionsByName[goalInputName],
                d.type == .multiArray,
                let shape = d.multiArrayConstraint?.shape {
                 let dims = shape.map { $0.intValue }
-                if dims.count == 3, let last = dims.last, last == 3 {
+                
+                // Temporal goal: [1,T,3]
+                if dims.count == 3 && dims[1] > 1 && dims[2] == 3 {
+                    let arr = try? MLMultiArray(shape: shape, dataType: .float32)
+                    if let arr = arr {
+                        let framesToUse = min(dims[1], frameBuffer.count)
+                        let paddingNeeded = dims[1] - framesToUse
+                        
+                        // Pad with repeated first goal if needed
+                        for t in 0..<paddingNeeded {
+                            if let firstGoal = frameBuffer.first?.goalPoint {
+                                for i in 0..<3 { arr[[0, NSNumber(value: t), NSNumber(value: i)]] = NSNumber(value: firstGoal[i]) }
+                            }
+                        }
+                        
+                        // Copy actual goals
+                        for (idx, entry) in frameBuffer.suffix(framesToUse).enumerated() {
+                            let t = paddingNeeded + idx
+                            if let goal = entry.goalPoint {
+                                for i in 0..<3 { arr[[0, NSNumber(value: t), NSNumber(value: i)]] = NSNumber(value: goal[i]) }
+                            }
+                        }
+                        return arr
+                    }
+                } else if dims.count == 3 && dims[2] == 3 {
                     // Shape [1,1,3]
                     let arr = try? MLMultiArray(shape: shape, dataType: .float32)
                     if let arr = arr {
                         for i in 0..<3 { arr[[0, 0, i] as [NSNumber]] = NSNumber(value: goalPointArray[i]) }
                         return arr
                     }
-                } else if dims.count == 2, dims == [1,3] {
+                } else if dims.count == 2 && dims == [1,3] {
                     let arr = try? MLMultiArray(shape: shape, dataType: .float32)
                     if let arr = arr {
                         for i in 0..<3 { arr[[0, i] as [NSNumber]] = NSNumber(value: goalPointArray[i]) }
                         return arr
                     }
-                } else if dims.count == 1, dims.first == 3 {
+                } else if dims.count == 1 && dims.first == 3 {
                     let arr = try? MLMultiArray(shape: shape, dataType: .float32)
                     if let arr = arr {
                         for i in 0..<3 { arr[[i] as [NSNumber]] = NSNumber(value: goalPointArray[i]) }
@@ -541,17 +689,56 @@ class MLInferenceManager: ObservableObject {
     }
     
     private func prepareLegacyInput(_ pixelBuffer: CVPixelBuffer, metadata: ModelMetadata) throws -> MLFeatureProvider {
-        // Simple approach matching old working code - no coordinate transformations
-        let inputArray = try processFrameForInference(pixelBuffer)
-        // Prefer metadata-driven input name if available
+        print("DEBUG: prepareLegacyInput called")
+        
+        // Process frame using unified method
+        let processedFrame = try processFrame(pixelBuffer, targetSize: modelInputSize, debugPrefix: "standard")
+        print("DEBUG: Frame processed, shape: \(processedFrame.shape)")
+        
+        // For legacy models, determine if we need to add temporal dimension [1,1,3,H,W]
         let inputName = metadata.getImageInputName() ?? "x_1"
+        let inputArray: MLMultiArray
+        
+        if let d = model?.modelDescription.inputDescriptionsByName[inputName],
+           d.type == .multiArray,
+           let shape = d.multiArrayConstraint?.shape {
+            print("DEBUG: Model expects shape: \(shape), rank: \(shape.count)")
+            
+            if shape.count == 5 {
+                // Model expects 5D [1,1,3,H,W]
+                let height = Int(modelInputSize.height)
+                let width = Int(modelInputSize.width)
+                inputArray = try MLMultiArray(shape: [1, 1, 3, NSNumber(value: height), NSNumber(value: width)], dataType: .float32)
+                
+                print("DEBUG: Converting [1,3,H,W] to [1,1,3,H,W]")
+                
+                // Copy from [1,3,H,W] to [1,1,3,H,W]
+                for c in 0..<3 {
+                    for h in 0..<height {
+                        for w in 0..<width {
+                            let value = processedFrame[[0, NSNumber(value: c), NSNumber(value: h), NSNumber(value: w)]]
+                            inputArray[[0, 0, NSNumber(value: c), NSNumber(value: h), NSNumber(value: w)]] = value
+                        }
+                    }
+                }
+            } else {
+                // Model expects 4D [1,3,H,W] - use directly
+                print("DEBUG: Using [1,3,H,W] directly")
+                inputArray = processedFrame
+            }
+        } else {
+            print("DEBUG: Could not determine model shape, using [1,3,H,W]")
+            inputArray = processedFrame
+        }
+        
+        print("DEBUG: Creating feature provider with input name: \(inputName)")
         return try MLDictionaryFeatureProvider(dictionary: [inputName: MLFeatureValue(multiArray: inputArray)])
     }
     
-    // MARK: - VQ-BeT Frame Processing
-    private func processFrameForVQBeT(_ pixelBuffer: CVPixelBuffer, inputSize: CGSize, expectedRank: Int) throws -> MLMultiArray {
-        let width = Int(inputSize.width)
-        let height = Int(inputSize.height)
+    // MARK: - Unified Frame Processing
+    private func processFrame(_ pixelBuffer: CVPixelBuffer, targetSize: CGSize, debugPrefix: String) throws -> MLMultiArray {
+        let width = Int(targetSize.width)
+        let height = Int(targetSize.height)
         
         // Create output pixel buffer
         let attributes: [String: Any] = [
@@ -583,45 +770,35 @@ class MLInferenceManager: ObservableObject {
         
         let inputImage = CIImage(cvPixelBuffer: pixelBuffer)
         let inputImageSize = CGSize(width: CVPixelBufferGetWidth(pixelBuffer), height: CVPixelBufferGetHeight(pixelBuffer))
-        let scaleX = inputSize.width / inputImageSize.width
-        let scaleY = inputSize.height / inputImageSize.height
+        let scaleX = targetSize.width / inputImageSize.width
+        let scaleY = targetSize.height / inputImageSize.height
         let scaleTransform = CGAffineTransform(scaleX: scaleX, y: scaleY)
         
         var scaledImage = inputImage.transformed(by: scaleTransform)
         if applyServerImageOrientation {
-            // Server path rotates images by 180° overall; replicate using EXIF .down
             scaledImage = scaledImage.oriented(.down)
         }
 
         // Save original scaled image for debugging
-        saveDebugFrame(scaledImage, prefix: "vqbet_original")
+        saveDebugFrame(scaledImage, prefix: "\(debugPrefix)_original")
 
         // Apply gripper overlay if enabled and USB streaming is off
         if shouldShowGripperOverlay() {
             scaledImage = applyGripperOverlay(to: scaledImage)
-            // Save image with overlay for debugging
-            saveDebugFrame(scaledImage, prefix: "vqbet_with_overlay")
+            saveDebugFrame(scaledImage, prefix: "\(debugPrefix)_with_overlay")
         }
 
-        let cropRect = CGRect(origin: .zero, size: inputSize)
-
+        let cropRect = CGRect(origin: .zero, size: targetSize)
         ciContext.render(scaledImage, to: outputBuffer, bounds: cropRect, colorSpace: CGColorSpaceCreateDeviceRGB())
-        print("Image processed for VQ-BeT: \(inputSize)")
         
-        // Convert to MLMultiArray for VQ-BeT format
-        // Support 4D [1,3,H,W] and 5D [1,1,3,H,W]
-        return try convertPixelBufferToVQBeTArray(outputBuffer, width: width, height: height, expectedRank: expectedRank)
+        // Convert to MLMultiArray as single frame [1,3,H,W] for buffering
+        return try convertPixelBufferToMLMultiArray(outputBuffer, width: width, height: height)
     }
     
-    private func convertPixelBufferToVQBeTArray(_ pixelBuffer: CVPixelBuffer, width: Int, height: Int, expectedRank: Int) throws -> MLMultiArray {
-        let shape: [NSNumber]
-        let fiveD = (expectedRank >= 5)
-        if fiveD {
-            shape = [1, 1, 3, NSNumber(value: height), NSNumber(value: width)]
-        } else {
-            shape = [1, 3, NSNumber(value: height), NSNumber(value: width)]
-        }
-        let inputArray = try MLMultiArray(shape: shape, dataType: .float32)
+    // MARK: - Unified Pixel Buffer to MLMultiArray Conversion
+    private func convertPixelBufferToMLMultiArray(_ pixelBuffer: CVPixelBuffer, width: Int, height: Int) throws -> MLMultiArray {
+        // Always produce [1,3,H,W] for consistent buffering
+        let inputArray = try MLMultiArray(shape: [1, 3, NSNumber(value: height), NSNumber(value: width)], dataType: .float32)
         
         guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else {
             throw NSError(domain: "MLInferenceManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to get pixel buffer base address"])
@@ -634,120 +811,13 @@ class MLInferenceManager: ObservableObject {
         for y in 0..<height {
             for x in 0..<width {
                 let offset = y * bytesPerRow + x * bytesPerPixel
-                
                 let r = Float(buffer[offset + 1]) / 255.0
                 let g = Float(buffer[offset + 2]) / 255.0
                 let b = Float(buffer[offset + 3]) / 255.0
                 
-                // VQ-BeT format: either [B, C, H, W] or [B, T, C, H, W] with T=1
-                let rIndex = fiveD ? [NSNumber(value: 0), NSNumber(value: 0), NSNumber(value: 0), NSNumber(value: y), NSNumber(value: x)]
-                                   : [NSNumber(value: 0), NSNumber(value: 0), NSNumber(value: y), NSNumber(value: x)]
-                let gIndex = fiveD ? [NSNumber(value: 0), NSNumber(value: 0), NSNumber(value: 1), NSNumber(value: y), NSNumber(value: x)]
-                                   : [NSNumber(value: 0), NSNumber(value: 1), NSNumber(value: y), NSNumber(value: x)]
-                let bIndex = fiveD ? [NSNumber(value: 0), NSNumber(value: 0), NSNumber(value: 2), NSNumber(value: y), NSNumber(value: x)]
-                                   : [NSNumber(value: 0), NSNumber(value: 2), NSNumber(value: y), NSNumber(value: x)]
-                
-                inputArray[rIndex] = NSNumber(value: r)
-                inputArray[gIndex] = NSNumber(value: g)
-                inputArray[bIndex] = NSNumber(value: b)
-            }
-        }
-        
-        return inputArray
-    }
-    
-    // MARK: - Legacy Frame Processing (Leveraging ARViewContainer patterns)
-    private func processFrameForInference(_ pixelBuffer: CVPixelBuffer) throws -> MLMultiArray {
-        // Create output pixel buffer for model input size
-        let attributes: [String: Any] = [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32ARGB,
-            kCVPixelBufferWidthKey as String: Int(modelInputSize.width),
-            kCVPixelBufferHeightKey as String: Int(modelInputSize.height)
-        ]
-        
-        var outputPixelBuffer: CVPixelBuffer?
-        let status = CVPixelBufferCreate(
-            kCFAllocatorDefault,
-            Int(modelInputSize.width),
-            Int(modelInputSize.height),
-            kCVPixelFormatType_32ARGB,
-            attributes as CFDictionary,
-            &outputPixelBuffer
-        )
-        
-        guard status == kCVReturnSuccess, let outputBuffer = outputPixelBuffer else {
-            throw NSError(domain: "MLInferenceManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create output pixel buffer"])
-        }
-        
-        // Use Core Image processing (same approach as ARViewContainer)
-        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
-        CVPixelBufferLockBaseAddress(outputBuffer, [])
-        defer {
-            CVPixelBufferUnlockBaseAddress(outputBuffer, [])
-            CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly)
-        }
-        
-        let inputImage = CIImage(cvPixelBuffer: pixelBuffer)
-        
-        // Scale to model input size
-        let inputSize = CGSize(width: CVPixelBufferGetWidth(pixelBuffer), height: CVPixelBufferGetHeight(pixelBuffer))
-        let scaleX = modelInputSize.width / inputSize.width
-        let scaleY = modelInputSize.height / inputSize.height
-        let scaleTransform = CGAffineTransform(scaleX: scaleX, y: scaleY)
-        
-        var scaledImage = inputImage.transformed(by: scaleTransform)
-        if applyServerImageOrientation {
-            scaledImage = scaledImage.oriented(.down)
-        }
-
-        // Save original scaled image for debugging
-        saveDebugFrame(scaledImage, prefix: "standard_original")
-
-        // Apply gripper overlay if enabled and USB streaming is off
-        if shouldShowGripperOverlay() {
-            scaledImage = applyGripperOverlay(to: scaledImage)
-            // Save image with overlay for debugging
-            saveDebugFrame(scaledImage, prefix: "standard_with_overlay")
-        }
-
-        let cropRect = CGRect(origin: .zero, size: modelInputSize)
-
-        // Render using the same CIContext approach as ARViewContainer
-        ciContext.render(scaledImage, to: outputBuffer, bounds: cropRect, colorSpace: CGColorSpaceCreateDeviceRGB())
-        print("Image processed for inference: \(modelInputSize)")
-        
-        // Convert to MLMultiArray (simplified since we now have consistently formatted data)
-        return try convertProcessedPixelBufferToMLMultiArray(outputBuffer)
-    }
-    
-    // MARK: - Simplified Pixel Buffer to MLMultiArray Conversion
-    private func convertProcessedPixelBufferToMLMultiArray(_ pixelBuffer: CVPixelBuffer) throws -> MLMultiArray {
-        // Explicitly index as [B=1, T=1, C=3, H=modelInputSize.height, W=modelInputSize.width]
-        let height = Int(modelInputSize.height)
-        let width = Int(modelInputSize.width)
-        let inputArray = try MLMultiArray(
-            shape: [1, 1, 3, NSNumber(value: height), NSNumber(value: width)],
-            dataType: .float32
-        )
-        
-        guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else {
-            throw NSError(domain: "MLInferenceManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to get pixel buffer base address"])
-        }
-        
-        let buffer = baseAddress.assumingMemoryBound(to: UInt8.self)
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
-        let bytesPerPixel = 4 // ARGB format
-        
-        // Since we're using Core Image processing, we have consistent ARGB format
-        for y in 0..<height {
-            for x in 0..<width {
-                let offset = y * bytesPerRow + x * bytesPerPixel
-                let r = Float(buffer[offset + 1]) / 255.0
-                let g = Float(buffer[offset + 2]) / 255.0
-                let b = Float(buffer[offset + 3]) / 255.0
-                inputArray[[0, 0, 0, NSNumber(value: y), NSNumber(value: x)]] = NSNumber(value: r)
-                inputArray[[0, 0, 1, NSNumber(value: y), NSNumber(value: x)]] = NSNumber(value: g)
-                inputArray[[0, 0, 2, NSNumber(value: y), NSNumber(value: x)]] = NSNumber(value: b)
+                inputArray[[0, 0, NSNumber(value: y), NSNumber(value: x)]] = NSNumber(value: r)
+                inputArray[[0, 1, NSNumber(value: y), NSNumber(value: x)]] = NSNumber(value: g)
+                inputArray[[0, 2, NSNumber(value: y), NSNumber(value: x)]] = NSNumber(value: b)
             }
         }
         
@@ -755,6 +825,27 @@ class MLInferenceManager: ObservableObject {
     }
     
     // MARK: - Result Processing
+    
+    /// Extract joint positions from model output, handling both single-step and multi-step outputs
+    private func extractJointPositions(from resultArray: MLMultiArray) -> [Float] {
+        let shape = resultArray.shape.map { $0.intValue }
+        
+        // Check if this is a multi-step temporal output: [T,1,7] or similar
+        if shape.count == 3 && shape[0] > 1 && shape[2] >= 7 {
+            // Multi-step output: extract last timestep [T-1, 0, 0...6]
+            let lastTimestep = shape[0] - 1
+            let jointPositions = (0..<7).map { i in
+                resultArray[[NSNumber(value: lastTimestep), 0, NSNumber(value: i)]].floatValue
+            }
+            print("Multi-step output detected: shape \(shape), using last timestep [\(lastTimestep)]")
+            return jointPositions
+        } else {
+            // Single-step output: extract directly
+            let outputCount = min(resultArray.count, 10)
+            return (0..<outputCount).map { resultArray[$0].floatValue }
+        }
+    }
+    
     private func processInferenceResults(_ output: MLFeatureProvider, inferenceTime: TimeInterval) {
         guard let metadata = modelMetadata else {
             return
@@ -770,13 +861,15 @@ class MLInferenceManager: ObservableObject {
                 return
             }
             
-            // Extract values directly (matching old code)
-            let outputCount = min(resultArray.count, 10)
-            let jointPositions = (0..<outputCount).map { resultArray[$0].floatValue }
+            // Extract values (handles both single-step and multi-step outputs)
+            let jointPositions = extractJointPositions(from: resultArray)
 
             // Update gripper value for overlay switching (7th element, index 6)
             if jointPositions.count >= 7 {
                 currentGripperValue = jointPositions[6]
+                Task { @MainActor [weak self] in
+                    self?.updateGripperOverlayDisplay()
+                }
             }
 
             let result = InferenceResult(
@@ -812,7 +905,7 @@ class MLInferenceManager: ObservableObject {
             print("[\(modelName)] Standard: [\(positionString)] (\(String(format: "%.1f", inferenceTime * 1000))ms)")
             
         } else {
-            // Point-conditioned models - use existing complex logic
+            // Point-conditioned models
             let outputFeatureName = metadata.primaryOutputName ?? output.featureNames.first
             
             guard let outputFeatureName = outputFeatureName,
@@ -820,13 +913,15 @@ class MLInferenceManager: ObservableObject {
                 return
             }
             
-            // Extract values dynamically based on what the model outputs
-            let outputCount = min(resultArray.count, 10)
-            let jointPositions = (0..<outputCount).map { resultArray[$0].floatValue }
+            // Extract values (handles both single-step and multi-step outputs)
+            let jointPositions = extractJointPositions(from: resultArray)
 
             // Update gripper value for overlay switching (7th element, index 6)
             if jointPositions.count >= 7 {
                 currentGripperValue = jointPositions[6]
+                Task { @MainActor [weak self] in
+                    self?.updateGripperOverlayDisplay()
+                }
             }
 
             let result = InferenceResult(

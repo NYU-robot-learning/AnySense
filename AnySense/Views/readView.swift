@@ -52,7 +52,14 @@ struct ReadView : View{
                     )
                     .allowsHitTesting(true)
                     
-                    
+                    // Gripper Overlay on AR View
+                    if let mlManager = arViewModel.mlManager,
+                       let overlayImage = mlManager.currentGripperOverlayImage {
+                        Image(uiImage: overlayImage)
+                            .resizable()
+                            .scaledToFit()
+                            .allowsHitTesting(false)
+                    }
                 }
                 .frame(width: arViewWidth, height: arViewHeight)
                 .padding(.bottom, arViewPadding)

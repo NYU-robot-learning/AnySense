@@ -10,6 +10,7 @@ struct DirectionalArrow {
     let anchor: AnchorEntity
     let timestamp: TimeInterval
     let magnitude: Float
+    let movementVector: SIMD3<Float>  // Store the actual movement vector for color updates
 }
 
 // MARK: - Visualization Frequency (Matching MLInferenceManager)
@@ -41,7 +42,7 @@ class ARVisualizationManager: ObservableObject {
     // MARK: - Published Properties
     @Published var isVisualizationEnabled: Bool = false
     @Published var showMovementArrows: Bool = true
-    @Published var maxArrows: Int = 10
+    @Published var maxArrows: Int = 1  // Only show one arrow at a time
     @Published var visualizationFrequency: VisualizationFrequency = .medium
     
     // MARK: - Private Properties  
@@ -62,11 +63,19 @@ class ARVisualizationManager: ObservableObject {
     private var previousWorldPosition: SIMD3<Float>?
     private var hasEstablishedOrigin: Bool = false
     
+    // Movement detection to prevent overlapping arrows
+    private var lastArrowPosition: SIMD3<Float>?
+    private var movementThreshold: Float = 0.01  // 1cm minimum movement between arrows
+    
+    // Trajectory deviation tracking
+    private var expectedTrajectory: [SIMD3<Float>] = []  // Expected movement trajectory
+    private var trajectoryDeviationThreshold: Float = 0.02  // 2cm deviation threshold for green/red
+    
     // Arrow visual configuration
-    private let arrowBaseLength: Float = 0.15      // Base length in meters
-    private let arrowThickness: Float = 0.008      // Arrow shaft thickness
-    private let arrowHeadRatio: Float = 0.25       // Head vs shaft ratio
-    private let arrowHeadWidth: Float = 0.025      // Arrow head width
+    private let arrowBaseLength: Float = 0.25      // Base length in meters (increased for visibility)
+    private let arrowThickness: Float = 0.012      // Arrow shaft thickness (increased for visibility)
+    private let arrowHeadRatio: Float = 0.3        // Head vs shaft ratio (increased for visibility)
+    private let arrowHeadWidth: Float = 0.035      // Arrow head width (increased for visibility)
     private let axisLength: Float = 0.08           // Coordinate axes length
     private let axisThickness: Float = 0.005       // Coordinate axes thickness
     
@@ -76,20 +85,36 @@ class ARVisualizationManager: ObservableObject {
     // Debug controls
     var debugLoggingEnabled: Bool = true
     var debugAlwaysDrawArrow: Bool = false
+    var debugForceColorVariation: Bool = false  // When true, forces different colors for testing
     // Visualization adjustments
     var applyEndOffset: Bool = true            // apply labels-forward (+Y_label) → -Z_camera offset
     var endOffsetMeters: Float = 0.05          // meters; matches training shift used in labels.json mapping
-    var useMagnitudeConfidence: Bool = false   // if true, scale color by delta magnitude; otherwise constant
+    var useMagnitudeConfidence: Bool = true    // if true, scale color by delta magnitude; otherwise constant
+    
+    // Enhanced visibility controls
+    var enhancedVisibilityMode: Bool = false   // When true, makes arrows more prominent for tracking
+    var visibilityOffsetDistance: Float = -0.1  // Distance to offset arrows from camera for visibility
+    
+    // Gripper state control
+    var isGripperClosed: Bool = false  // When true, stops visualization
+    
+    // Virtual gripper setting
+    var useVirtualGripper: Bool = false  // When true, uses gripper_overlay.png; when false, passes image to policy
     
     // MARK: - Initialization 
     init() {
-        print("ARVisualizationManager initialized with delta-based movement arrows")
+        log("Initialized with delta-based movement arrows")
+    }
+    
+    // MARK: - Logging Helper
+    private func log(_ message: String) {
+        print("[ARViz] \(message)")
     }
     
     // MARK: - Setup Methods
     func setupVisualization(with arView: ARView) {
         self.arView = arView
-        print("AR Visualization setup completed - using camera-relative directional arrows")
+        log("Setup completed - using camera-relative directional arrows")
     }
     
     // MARK: - Recording Control Methods
@@ -112,6 +137,7 @@ class ARVisualizationManager: ObservableObject {
         disableVisualization()
         clearAllVisualization()
         resetMovementTracking()
+        
         print("Stopped movement visualization and reset tracking")
     }
     
@@ -153,6 +179,8 @@ class ARVisualizationManager: ObservableObject {
         worldOrigin = SIMD3<Float>(0, 0, 0)
         currentWorldPosition = SIMD3<Float>(0, 0, 0)
         previousWorldPosition = nil
+        lastArrowPosition = nil  // Reset arrow position tracking
+        expectedTrajectory = []  // Reset expected trajectory
         
         // Remove goal point visualization
         goalPointEntity?.removeFromParent()
@@ -221,6 +249,108 @@ class ARVisualizationManager: ObservableObject {
         print("AR Visualization frequency set to: \(frequency.displayName)")
     }
     
+    // MARK: - Enhanced Visibility Methods
+    func enableEnhancedVisibility() {
+        enhancedVisibilityMode = true
+        visibilityOffsetDistance = 0.15  // Increase offset for better visibility
+        log("Enhanced visibility enabled - arrows will be more prominent")
+    }
+    
+    func disableEnhancedVisibility() {
+        enhancedVisibilityMode = false
+        visibilityOffsetDistance = 0.1  // Reset to default offset
+        log("Enhanced visibility disabled")
+    }
+    
+    func setVisibilityOffset(_ distance: Float) {
+        visibilityOffsetDistance = max(0.05, min(0.3, distance))  // Clamp between 5cm and 30cm
+        log("Visibility offset: \(visibilityOffsetDistance)m")
+    }
+    
+    func setMovementThreshold(_ threshold: Float) {
+        movementThreshold = max(0.005, min(0.05, threshold))  // Clamp between 5mm and 5cm
+        log("Movement threshold: \(movementThreshold)m")
+    }
+    
+    func toggleConfidenceMode() {
+        useMagnitudeConfidence.toggle()
+        print("Confidence mode: \(useMagnitudeConfidence ? "Magnitude-based" : "Direction-based")")
+    }
+    
+    // MARK: - Gripper State Control
+    func setGripperState(isClosed: Bool) {
+        isGripperClosed = isClosed
+        if isClosed {
+            print("Gripper closed - visualization will be disabled")
+        } else {
+            print("Gripper opened - visualization enabled")
+        }
+    }
+    
+    // MARK: - Virtual Gripper Control
+    func toggleVirtualGripper() {
+        useVirtualGripper.toggle()
+        print("Virtual gripper: \(useVirtualGripper ? "ON" : "OFF")")
+    }
+    
+    func setVirtualGripper(enabled: Bool) {
+        useVirtualGripper = enabled
+        print("Virtual gripper: \(enabled ? "ON" : "OFF")")
+    }
+    
+    // MARK: - USB Streaming Integration
+    private var isUSBStreamingActive: Bool = false
+    
+    func setUSBStreamingState(isActive: Bool) {
+        // This integrates with the existing USB streaming system
+        // When USB streaming is active, virtual gripper is automatically disabled
+        isUSBStreamingActive = isActive
+        if isActive {
+            print("USB streaming ON - Virtual gripper automatically disabled")
+        } else {
+            print("USB streaming OFF - Virtual gripper setting: \(useVirtualGripper ? "ON" : "OFF")")
+        }
+    }
+    
+    func shouldUseVirtualGripper() -> Bool {
+        // Virtual gripper is only used when:
+        // 1. useVirtualGripper is enabled AND
+        // 2. USB streaming is not active
+        return useVirtualGripper && !isUSBStreamingActive
+    }
+    
+    func enableDebugColorVariation() {
+        debugForceColorVariation = true
+        print("Debug color variation enabled - arrows will cycle through colors")
+    }
+    
+    func disableDebugColorVariation() {
+        debugForceColorVariation = false
+        print("Debug color variation disabled")
+    }
+    
+    // MARK: - Trajectory Deviation Control
+    func setExpectedTrajectory(_ trajectory: [SIMD3<Float>]) {
+        expectedTrajectory = trajectory
+        print("Expected trajectory set with \(trajectory.count) points")
+    }
+    
+    func setDeviationThreshold(_ threshold: Float) {
+        trajectoryDeviationThreshold = max(0.005, min(0.1, threshold))  // Clamp between 5mm and 10cm
+        print("Deviation threshold set to: \(trajectoryDeviationThreshold)m")
+    }
+    
+    func updateArrowColors() {
+        // Update colors of all existing arrows based on current trajectory deviation
+        for arrow in movementArrows {
+            // Calculate new confidence based on current trajectory
+            let arrowMovement = extractMovementFromArrow(arrow)
+            let newConfidence = calculateTrajectoryDeviationConfidence(actualMovement: arrowMovement)
+            updateArrowColor(arrow: arrow, confidence: newConfidence)
+        }
+        print("Updated colors for \(movementArrows.count) existing arrows")
+    }
+    
     // MARK: - Device Pose Integration
     func updateActualDevicePose(from arFrame: ARFrame) {
         let t = arFrame.camera.transform
@@ -257,13 +387,19 @@ class ARVisualizationManager: ObservableObject {
             print("World origin not established - cannot track movement")
             return
         }
+        guard !isGripperClosed else {
+            if debugLoggingEnabled {
+                print("[Viz] Visualization stopped - gripper is closed")
+            }
+            return
+        }
         guard jointActions.count >= 6 else {
             print("Invalid joint actions array - need at least 6 values, got \(jointActions.count)")
             return
         }
         
         // Interpret joint actions as movement deltas in CAMERA coordinates, then rotate into world frame
-        let (cameraDeltaTranslation, _, confidence) = interpretMLDirections(jointActions)
+        let (cameraDeltaTranslation, _, confidence) = interpretMLDirections(jointActions, timestamp: timestamp)
         let cameraTransform = getCurrentCameraTransform()
         let rotationWorldFromCamera = simd_float3x3(
             columns: (
@@ -276,7 +412,7 @@ class ARVisualizationManager: ObservableObject {
         if debugLoggingEnabled {
             func fmt(_ f: Float) -> String { String(format: "%.3f", f) }
             func fmt3(_ v: SIMD3<Float>) -> String { "(\(fmt(v.x)), \(fmt(v.y)), \(fmt(v.z)))" }
-            print("[Viz] Δcam \(fmt3(cameraDeltaTranslation)) → Δworld \(fmt3(deltaTranslation))")
+            print("[Viz] Δcam \(fmt3(cameraDeltaTranslation)) → Δworld \(fmt3(deltaTranslation)) | confidence: \(fmt(confidence))")
         }
         
         // ML coordinate transform applied
@@ -289,18 +425,33 @@ class ARVisualizationManager: ObservableObject {
         ) - worldOrigin
 
         // Show ML policy arrow from current camera position, not accumulated position
-        let targetPosition = currentCameraPosition + deltaTranslation
+        // Position arrows further out for better visibility (configurable offset distance)
+        let cameraForward = SIMD3<Float>(cameraTransform.columns.2.x, cameraTransform.columns.2.y, cameraTransform.columns.2.z)
+        let offsetPosition = currentCameraPosition + cameraForward * visibilityOffsetDistance
+        let targetPosition = offsetPosition + deltaTranslation
 
-        // Only create movement arrow if there's meaningful movement
+        // Only create movement arrow if there's meaningful movement AND sufficient distance from last arrow
         let movementMagnitude = length(deltaTranslation)
-        // Movement magnitude calculated
-        if movementMagnitude > 0.005 || debugAlwaysDrawArrow { // draw even if tiny in debug
+        let shouldCreateArrow: Bool
+        
+        if let lastPos = lastArrowPosition {
+            let distanceFromLastArrow = length(offsetPosition - lastPos)
+            shouldCreateArrow = (movementMagnitude > 0.002 || debugAlwaysDrawArrow) && distanceFromLastArrow > movementThreshold
+        } else {
+            shouldCreateArrow = movementMagnitude > 0.002 || debugAlwaysDrawArrow
+        }
+        
+        if shouldCreateArrow {
             createMovementArrow(
-                from: currentCameraPosition,
+                from: offsetPosition,
                 to: targetPosition,
                 confidence: confidence,
                 timestamp: timestamp
             )
+            lastArrowPosition = offsetPosition  // Update last arrow position
+        } else {
+            // Update colors of existing arrows based on current trajectory deviation
+            updateArrowColors()
         }
 
         // Update tracking position to current camera position (not accumulated)
@@ -309,7 +460,7 @@ class ARVisualizationManager: ObservableObject {
         // Position updated with movement delta
     }
     
-    private func interpretMLDirections(_ jointActions: [Float]) -> (translation: SIMD3<Float>, rotation: simd_quatf, confidence: Float) {
+    private func interpretMLDirections(_ jointActions: [Float], timestamp: CFTimeInterval = CACurrentMediaTime()) -> (translation: SIMD3<Float>, rotation: simd_quatf, confidence: Float) {
         // Map policy action → CAMERA frame (translation and Euler rotation)
         let action7 = Array(jointActions.prefix(7))
         // Determine device interface orientation → quarter turns around camera Z
@@ -334,11 +485,88 @@ class ARVisualizationManager: ObservableObject {
         }
         let rotationCamera = eulerToQuaternion(roll: mapped[3], pitch: mapped[4], yaw: mapped[5])
 
-        // Confidence: constant by default; optionally scale by translation magnitude
-        let confidence: Float = useMagnitudeConfidence ? min(1.0, max(0.0, length(translationCamera) * 10.0)) : 1.0
+        // Confidence: based on trajectory deviation (green = close to expected, red = far from expected)
+        let movementMagnitude = length(translationCamera)
+        let confidence: Float
+        
+        if debugForceColorVariation {
+            // Force color variation for testing - cycle through colors
+            let timeBasedConfidence = Float((timestamp.truncatingRemainder(dividingBy: 3.0)) / 3.0)
+            confidence = timeBasedConfidence
+        } else {
+            // Calculate trajectory deviation-based confidence
+            confidence = calculateTrajectoryDeviationConfidence(actualMovement: translationCamera)
+        }
 
         // Return CAMERA-frame delta; caller will rotate to WORLD frame using current camera pose
         return (translationCamera, rotationCamera, confidence)
+    }
+    
+    // MARK: - Trajectory Deviation Calculation
+    private func calculateTrajectoryDeviationConfidence(actualMovement: SIMD3<Float>) -> Float {
+        // If no expected trajectory is set, use movement magnitude as fallback
+        guard !expectedTrajectory.isEmpty else {
+            let magnitude = length(actualMovement)
+            return min(1.0, max(0.0, magnitude * 20.0))  // Scale magnitude to 0-1
+        }
+        
+        // Find the closest expected movement in the trajectory
+        let actualMagnitude = length(actualMovement)
+        var minDeviation: Float = Float.greatestFiniteMagnitude
+        
+        for expectedMovement in expectedTrajectory {
+            let expectedMagnitude = length(expectedMovement)
+            let magnitudeDeviation = abs(actualMagnitude - expectedMagnitude)
+            
+            // Calculate directional deviation (angle between vectors)
+            let angleDeviation: Float
+            if actualMagnitude > 0.001 && expectedMagnitude > 0.001 {
+                let dotProduct = dot(normalize(actualMovement), normalize(expectedMovement))
+                let clampedDot = max(-1.0, min(1.0, dotProduct))  // Clamp for acos
+                angleDeviation = acos(clampedDot) * 180.0 / Float.pi  // Convert to degrees
+            } else {
+                angleDeviation = 0.0
+            }
+            
+            // Combined deviation (magnitude + direction)
+            let combinedDeviation = magnitudeDeviation + (angleDeviation / 180.0) * 0.1  // Scale angle deviation
+            minDeviation = min(minDeviation, combinedDeviation)
+        }
+        
+        // Convert deviation to confidence (low deviation = high confidence = green)
+        // Deviation below threshold = green (confidence > 0.5)
+        // Deviation above threshold = red (confidence < 0.5)
+        let normalizedDeviation = minDeviation / trajectoryDeviationThreshold
+        let confidence = max(0.0, min(1.0, 1.0 - normalizedDeviation))
+        
+        return confidence
+    }
+    
+    // MARK: - Arrow Color Update Helpers
+    private func extractMovementFromArrow(_ arrow: DirectionalArrow) -> SIMD3<Float> {
+        // Use the stored movement vector for accurate color updates
+        return arrow.movementVector
+    }
+    
+    private func updateArrowColor(arrow: DirectionalArrow, confidence: Float) {
+        DispatchQueue.main.async {
+            // Get the arrow color based on confidence
+            let newColor = self.confidenceToColor(confidence, enhanced: self.enhancedVisibilityMode)
+            
+            // Update the arrow entity's material color
+            if let arrowEntity = arrow.entity as? ModelEntity {
+                let newMaterial = SimpleMaterial(color: newColor, isMetallic: false)
+                arrowEntity.model?.materials = [newMaterial]
+            } else {
+                // If it's a container entity, update child entities
+                for child in arrow.entity.children {
+                    if let childEntity = child as? ModelEntity {
+                        let newMaterial = SimpleMaterial(color: newColor, isMetallic: false)
+                        childEntity.model?.materials = [newMaterial]
+                    }
+                }
+            }
+        }
     }
     
     private func createMovementArrow(from: SIMD3<Float>, to: SIMD3<Float>, confidence: Float, timestamp: TimeInterval) {
@@ -351,8 +579,8 @@ class ARVisualizationManager: ObservableObject {
             let movement = to - from
             let movementMagnitude = length(movement)
             
-            // Skip tiny movements
-            guard movementMagnitude > 0.001 else { return }
+            // Skip tiny movements (lowered threshold for better visibility)
+            guard movementMagnitude > 0.0005 else { return }
             
             // Create arrow entity showing movement from previous to current position
             let arrowEntity = self.createMovementArrowEntity(
@@ -371,19 +599,17 @@ class ARVisualizationManager: ObservableObject {
                 entity: arrowEntity,
                 anchor: worldOriginAnchor,
                 timestamp: timestamp,
-                magnitude: movementMagnitude
+                magnitude: movementMagnitude,
+                movementVector: movement
             )
             
-            self.movementArrows.append(movementArrow)
-            
-            // Clean up old arrows
-            self.cleanupOldArrows(currentTime: timestamp)
-            
-            // Limit number of arrows
-            while self.movementArrows.count > self.maxArrows {
-                let oldArrow = self.movementArrows.removeFirst()
-                oldArrow.entity.removeFromParent()
+            // Remove existing arrow immediately (we only want one arrow at a time)
+            if let existingArrow = self.movementArrows.first {
+                existingArrow.entity.removeFromParent()
             }
+            
+            // Replace with new arrow
+            self.movementArrows = [movementArrow]
             
             // Movement arrow created
         }
@@ -394,7 +620,8 @@ class ARVisualizationManager: ObservableObject {
         
         // Calculate arrow dimensions based on movement magnitude
         let movementMagnitude = length(movement)
-        let scaledLength = max(movementMagnitude, 0.02) // Minimum 2cm for visibility
+        let minLength: Float = enhancedVisibilityMode ? 0.08 : 0.05  // Larger minimum in enhanced mode
+        let scaledLength = max(movementMagnitude, minLength)
         let shaftLength = scaledLength * (1.0 - arrowHeadRatio)
         let headLength = scaledLength * arrowHeadRatio
         
@@ -406,7 +633,8 @@ class ARVisualizationManager: ObservableObject {
         )
         
         // Color based on confidence: red (low) -> yellow (medium) -> green (high)
-        let shaftColor = confidenceToColor(confidence)
+        // Enhanced visibility mode makes colors more vibrant
+        let shaftColor = confidenceToColor(confidence, enhanced: enhancedVisibilityMode)
         let shaftEntity = ModelEntity(
             mesh: shaftMesh,
             materials: [SimpleMaterial(color: shaftColor, isMetallic: false)]
@@ -443,18 +671,16 @@ class ARVisualizationManager: ObservableObject {
         return arrowContainer
     }
     
-    private func confidenceToColor(_ confidence: Float) -> UIColor {
-        // Red (low confidence) -> Yellow (medium) -> Green (high confidence)
+    private func confidenceToColor(_ confidence: Float, enhanced: Bool = false) -> UIColor {
         let clampedConfidence = max(0.0, min(1.0, confidence))
+        let alpha: CGFloat = enhanced ? 1.0 : 0.9
         
         if clampedConfidence < 0.5 {
-            // Red to Yellow
             let factor = clampedConfidence * 2.0
-            return UIColor(red: 1.0, green: CGFloat(factor), blue: 0.0, alpha: 0.8)
+            return UIColor(red: 1.0, green: CGFloat(factor), blue: 0.0, alpha: alpha)
         } else {
-            // Yellow to Green
             let factor = (clampedConfidence - 0.5) * 2.0
-            return UIColor(red: CGFloat(1.0 - factor), green: 1.0, blue: 0.0, alpha: 0.8)
+            return UIColor(red: CGFloat(1.0 - factor), green: 1.0, blue: 0.0, alpha: alpha)
         }
     }
     
