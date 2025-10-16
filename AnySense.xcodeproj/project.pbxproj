@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		01090A442EA0996B004DB8C1 /* ReticleOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01090A432EA0996B004DB8C1 /* ReticleOverlayView.swift */; };
 		01682BC42DF0D88100CDA03C /* ModelInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F5B7C92DEA6A1000061B16 /* ModelInfo.swift */; };
 		01682BC52DF0D88C00CDA03C /* MLModel+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F5B7CB2DEA6A2000061B16 /* MLModel+Extensions.swift */; };
 		01682BC92DF4D7CB00CDA03C /* ARVisualizationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01682BC82DF4D7CB00CDA03C /* ARVisualizationManager.swift */; };
@@ -48,6 +49,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		01090A432EA0996B004DB8C1 /* ReticleOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReticleOverlayView.swift; sourceTree = "<group>"; };
 		01682BC82DF4D7CB00CDA03C /* ARVisualizationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ARVisualizationManager.swift; sourceTree = "<group>"; };
 		01D2FDD52E64C33600F0BA98 /* ActionTransformUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionTransformUtils.swift; sourceTree = "<group>"; };
 		01F5B7C32DEA697200061B16 /* MLInferenceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLInferenceManager.swift; sourceTree = "<group>"; };
@@ -156,6 +158,7 @@
 				01F5B7C52DEA698D00061B16 /* MLInferenceResultsView.swift */,
 				B9E4B2312D62A9C40032E877 /* accountView.swift */,
 				B9E4B2322D62A9C40032E877 /* ContentView.swift */,
+				01090A432EA0996B004DB8C1 /* ReticleOverlayView.swift */,
 				B9E4B2332D62A9C40032E877 /* peripheralView.swift */,
 				B9E4B2342D62A9C40032E877 /* readView.swift */,
 			);
@@ -339,6 +342,7 @@
 			files = (
 				01682BC42DF0D88100CDA03C /* ModelInfo.swift in Sources */,
 				B9E4B2362D62A9C40032E877 /* peripheralView.swift in Sources */,
+				01090A442EA0996B004DB8C1 /* ReticleOverlayView.swift in Sources */,
 				01682BC92DF4D7CB00CDA03C /* ARVisualizationManager.swift in Sources */,
 				B9E4B2372D62A9C40032E877 /* accountView.swift in Sources */,
 				B9E4B2382D62A9C40032E877 /* readView.swift in Sources */,
