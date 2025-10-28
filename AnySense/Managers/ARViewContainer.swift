@@ -76,7 +76,19 @@ struct ARViewContainer: UIViewRepresentable {
 
             // Try depth-based unprojection first (for LiDAR devices)
             if let (worldPoint, method) = parent.worldPointFromDepth(at: location, in: arView) {
-                print("Using \(method) method for 3D point: \(worldPoint)")
+                print("📍 Tap at screen location: \(location)")
+                print("   Using \(method) method for 3D point: \(worldPoint)")
+                
+                // Show distance from camera
+                if let currentFrame = arView.session.currentFrame {
+                    let camPos = simd_float3(
+                        currentFrame.camera.transform.columns.3.x,
+                        currentFrame.camera.transform.columns.3.y,
+                        currentFrame.camera.transform.columns.3.z
+                    )
+                    let distanceFromCam = length(worldPoint - camPos)
+                    print("   Distance from camera: \(distanceFromCam)m")
+                }
 
                 // Create anchor at the world point
                 var t = matrix_identity_float4x4
@@ -98,29 +110,32 @@ struct ARViewContainer: UIViewRepresentable {
                 return
             }
 
-            // Fallback to raycast if depth unavailable or failed
-            if let hit = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any).first {
-                let t = hit.worldTransform
-                let world = simd_float3(t.columns.3.x, t.columns.3.y, t.columns.3.z)
+            // Only fallback to raycast on non-Pro devices (no LiDAR)
+            // On Pro devices with LiDAR, if depth fails, user can just tap again
+            if !parent.depthStatus.isDepthAvailable {
+                if let hit = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any).first {
+                    let t = hit.worldTransform
+                    let world = simd_float3(t.columns.3.x, t.columns.3.y, t.columns.3.z)
 
-                // Create a native ARKit anchor at the hit (world-locked)
-                let goalAnchor = ARAnchor(name: "goal", transform: t)
-                arView.session.add(anchor: goalAnchor)
+                    // Create a native ARKit anchor at the hit (world-locked)
+                    let goalAnchor = ARAnchor(name: "goal", transform: t)
+                    arView.session.add(anchor: goalAnchor)
 
-                print("Using raycast fallback for 3D point: \(world)")
+                    print("Using raycast fallback for 3D point: \(world)")
 
-                // Notify ML pipeline with the world point
-                NotificationCenter.default.post(
-                    name: NSNotification.Name("ARViewTapForGoal"),
-                    object: nil,
-                    userInfo: [
-                        "worldPoint": world,
-                        "method": "raycast",
-                        "location": location,
-                        "bounds": arView.bounds
-                    ]
-                )
-                return
+                    // Notify ML pipeline with the world point
+                    NotificationCenter.default.post(
+                        name: NSNotification.Name("ARViewTapForGoal"),
+                        object: nil,
+                        userInfo: [
+                            "worldPoint": world,
+                            "method": "raycast",
+                            "location": location,
+                            "bounds": arView.bounds
+                        ]
+                    )
+                    return
+                }
             }
             // Fallback: still notify with screen info (no hit yet)
             NotificationCenter.default.post(
@@ -178,7 +193,10 @@ struct ARViewContainer: UIViewRepresentable {
             }
         }
 
-        guard !samples.isEmpty else { return nil }
+        guard !samples.isEmpty else {
+            print("⚠️ Depth unprojection failed: no valid depth samples")
+            return nil
+        }
         samples.sort()
         let depthValue = samples[samples.count / 2] // median
 
@@ -194,7 +212,7 @@ struct ARViewContainer: UIViewRepresentable {
         // 6. Transform to world coordinates
         let pc = simd_float4(xc, yc, zc, 1)
         let pw = simd_mul(frame.camera.transform, pc)
-
+        
         return (simd_float3(pw.x, pw.y, pw.z), "depth")
     }
 

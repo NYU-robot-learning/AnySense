@@ -61,7 +61,7 @@ class ARVisualizationManager: ObservableObject {
     private var targetCameraPosition: SIMD3<Float>?  // Target camera position for proximity (without offset)
     
     // Proximity detection
-    private let proximityThreshold: Float = 0.10  // 10cm for "merged" state
+    private let proximityThreshold: Float = 0.15  // 15cm for "merged" state (increased for better detection)
     
     // Target/device pose state for point-conditioned flows
     private var targetPose: SIMD3<Float>?
@@ -77,9 +77,8 @@ class ARVisualizationManager: ObservableObject {
     
     // Cube visual configuration
     private let cubeSize: Float = 0.02  // 2cm cubes
-    private let currentCubeForwardOffset: Float = -0.010  // -5cm offset (out of screen, towards camera)
-    private let targetCubeForwardOffset: Float = 0.00  // -3cm offset for target cube
-    private let goalForwardOffset: Float = 0.00  // -5cm offset for goal point
+    private let currentCubeForwardOffset: Float = -0.010  // -1cm offset (out of screen, towards camera)
+    private let targetCubeForwardOffset: Float = 0.00  // No offset for target cube
     
     // Debug controls
     var debugLoggingEnabled: Bool = true
@@ -255,6 +254,8 @@ class ARVisualizationManager: ObservableObject {
         }
     }
     
+    private var lastLoggedDistance: Float = -1.0
+    
     private func checkProximityAndUpdateState() {
         guard !isGripperClosed,
               let cameraPos = actualCameraPosition,
@@ -262,11 +263,19 @@ class ARVisualizationManager: ObservableObject {
         
         let distance = length(cameraPos - targetPos)
         
+        // Log only when close to threshold or when distance changes significantly
+        let distanceChanged = abs(distance - lastLoggedDistance) > 0.02 // 2cm change
+        let isClose = distance < proximityThreshold * 1.5  // Within 1.5x threshold
+        if debugLoggingEnabled && (distanceChanged || isClose) {
+            print("[Proximity] 📏 Distance: \(String(format: "%.4f", distance))m | Threshold: \(proximityThreshold)m | \(distance <= proximityThreshold ? "✅ WITHIN" : "⏳ Far")")
+            lastLoggedDistance = distance
+        }
+        
         if distance <= proximityThreshold {
             // Camera reached target - signal inference trigger
             if actionState != .reached {
                 actionState = .reached
-                log("Target reached - triggering inference (distance: \(String(format: "%.3f", distance))m)")
+                log("✅ Target reached - triggering inference (distance: \(String(format: "%.4f", distance))m)")
                 
                 // Notify observers that proximity was reached
                 NotificationCenter.default.post(
@@ -278,7 +287,7 @@ class ARVisualizationManager: ObservableObject {
             if actionState != .waiting {
                 actionState = .waiting
                 if debugLoggingEnabled {
-                    log("State changed to waiting (distance: \(String(format: "%.3f", distance))m)")
+                    log("⏳ State changed to waiting (distance: \(String(format: "%.4f", distance))m)")
                 }
             }
         }
@@ -376,6 +385,12 @@ class ARVisualizationManager: ObservableObject {
     }
     
     func setTargetPose(_ worldPoint: SIMD3<Float>) {
+        print("🎯 setTargetPose called with world point: \(worldPoint)")
+        print("   hasEstablishedOrigin: \(hasEstablishedOrigin)")
+        print("   worldOrigin: \(worldOrigin)")
+        print("   isGripperClosed: \(isGripperClosed)")
+        print("   isVisualizationEnabled: \(isVisualizationEnabled)")
+        
         targetPose = worldPoint
         // Ensure visualization is ready before creating goal point
         ensureVisualizationReady()
@@ -524,7 +539,11 @@ class ARVisualizationManager: ObservableObject {
               let targetPose = targetPose,
               let worldOriginAnchor = worldOriginAnchor,
               hasEstablishedOrigin else { 
-            print(" Cannot create goal visualization - targetPose: \(targetPose?.debugDescription ?? "nil"), anchor: \(worldOriginAnchor != nil), origin: \(hasEstablishedOrigin), gripperClosed: \(isGripperClosed)")
+            print("❌ Cannot create goal visualization:")
+            print("   targetPose exists: \(targetPose != nil)")
+            print("   worldOriginAnchor exists: \(worldOriginAnchor != nil)")
+            print("   hasEstablishedOrigin: \(hasEstablishedOrigin)")
+            print("   isGripperClosed: \(isGripperClosed)")
             goalPointEntity?.removeFromParent()
             goalPointEntity = nil
             return 
@@ -535,23 +554,26 @@ class ARVisualizationManager: ObservableObject {
         goalPointEntity = nil
         
         // Create a visible sphere 
-        let sphereMesh = MeshResource.generateSphere(radius: 0.01)
+        let sphereMesh = MeshResource.generateSphere(radius: 0.02) // 2cm radius for better visibility
         let goalMaterial = SimpleMaterial(color: .systemRed, isMetallic: false) 
         goalPointEntity = ModelEntity(mesh: sphereMesh, materials: [goalMaterial])
         
-        // Position the sphere at the target pose (relative to world origin) with -10cm offset (Z direction only)
+        // Position the sphere at the target pose (relative to world origin)
+        // This matches the working version from commit 41abd7a
         let relativePosition = targetPose - worldOrigin
-        let goalDisplayPosition = relativePosition + SIMD3<Float>(0, 0, goalForwardOffset)
-        
-        goalPointEntity?.position = goalDisplayPosition
+        goalPointEntity?.position = relativePosition
         worldOriginAnchor.addChild(goalPointEntity!)
         
-        print("Goal point visualization created:")
+        print("✅ Goal point visualization created:")
         print("   Target pose (world): \(targetPose)")
         print("   World origin: \(worldOrigin)")
         print("   Relative position: \(relativePosition)")
-        print("   Display position (with offset): \(goalDisplayPosition)")
         print("   Distance from origin: \(length(relativePosition))m")
+        
+        // Check current camera position for reference
+        let currentCamPos = getCurrentCameraPosition()
+        let distanceFromCamera = length(targetPose - currentCamPos)
+        print("   Distance from current camera: \(distanceFromCamera)m")
     }
 
     // MARK: - Anchor-based goal visualization
