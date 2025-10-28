@@ -57,7 +57,12 @@ class MLInferenceManager: ObservableObject {
         let goalPoint: [Float]?     // Goal at time of capture
     }
     private var frameBuffer: [FrameBufferEntry] = []
-    private var maxBufferSize: Int = 1  // Set by model metadata (1 for single-frame, 3 for temporal)
+    private var maxBufferSize: Int = 3  // Always maintain 3 frames for rolling buffer
+    
+    // MARK: - Proximity-based Inference Control
+    private var proximityReached: Bool = false
+    private var isInferencePending: Bool = false
+    private var hasRunFirstInference: Bool = false  // Track if we've run initial inference
     
     // MARK: - Model Management
     private var modelManager: ModelManager
@@ -110,6 +115,7 @@ class MLInferenceManager: ObservableObject {
     // MARK: - Transform/Debug Settings
     var rotationUnit: ActionTransformUtils.RotationUnit = .eulerXYZ
     var enableTransformDebug: Bool = true
+    var debugLoggingEnabled: Bool = true  // Enable detailed logging
     // Apply server-style image orientation (Record3D publisher does rotations/mirrors)
     var applyServerImageOrientation: Bool = false
     
@@ -127,6 +133,15 @@ class MLInferenceManager: ObservableObject {
                 self?.loadActiveModel()
             }
             .store(in: &cancellables)
+        
+        // Listen for proximity reached notifications from ARVisualizationManager
+        NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("ProximityReached"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleProximityReached()
+        }
     }
     
     deinit {
@@ -339,7 +354,8 @@ class MLInferenceManager: ObservableObject {
             model = nil
             modelMetadata = nil
             frameBuffer.removeAll()
-            maxBufferSize = 1
+            hasRunFirstInference = false
+            // maxBufferSize stays at 3
             return
         }
         
@@ -351,9 +367,10 @@ class MLInferenceManager: ObservableObject {
             let metadata = try ModelMetadata(from: loadedModel)
             modelMetadata = metadata
             
-            // Configure frame buffer based on model's temporal requirements
-            maxBufferSize = metadata.temporalFrames
+            // Always maintain 3-frame rolling buffer (don't override with model's temporal requirement)
+            // maxBufferSize stays at 3
             frameBuffer.removeAll()
+            hasRunFirstInference = false  // Reset for new model
             
             print("Model loaded: \(activeModel.name)")
             print("  Temporal frames: \(metadata.temporalFrames)")
@@ -375,7 +392,8 @@ class MLInferenceManager: ObservableObject {
             model = nil
             modelMetadata = nil
             frameBuffer.removeAll()
-            maxBufferSize = 1
+            hasRunFirstInference = false
+            // maxBufferSize stays at 3
         }
     }
     
@@ -460,6 +478,16 @@ class MLInferenceManager: ObservableObject {
         self.arViewContainer = container
     }
     
+    // MARK: - Proximity Handler
+    private func handleProximityReached() {
+        guard !isInferencePending else {
+            print("[MLInference] Proximity reached but inference already pending - skipping")
+            return
+        }
+        proximityReached = true
+        print("[MLInference] Proximity reached - inference will trigger with next frame (firstInference: \(hasRunFirstInference))")
+    }
+    
     // MARK: - Inference Methods (Using existing frame processing patterns)
     func performInference(on pixelBuffer: CVPixelBuffer, arFrame: ARFrame?, timestamp: CFTimeInterval = CACurrentMediaTime()) {
         // Update device pose for visualization (optional)
@@ -472,30 +500,68 @@ class MLInferenceManager: ObservableObject {
     
     func performInference(on pixelBuffer: CVPixelBuffer, timestamp: CFTimeInterval = CACurrentMediaTime()) {
         guard isInferenceEnabled,
-              let model = model,
               let metadata = modelMetadata else { 
-            print("DEBUG: Inference skipped - enabled: \(isInferenceEnabled), model: \(model != nil), metadata: \(modelMetadata != nil)")
             return 
         }
         
         // Check if goal point is required but not set
         if metadata.requiresGoalPoint && currentGoalPoint == nil {
-            print("DEBUG: Inference skipped - goal point required but not set")
-            return // Skip inference until goal point is set
+            return // Skip until goal point is set
         }
         
-        if timestamp - lastInferenceTime < inferenceFrequency.interval {
+        // ALWAYS buffer frames (rolling 3-frame buffer)
+        do {
+            let processedFrame = try processFrame(pixelBuffer, targetSize: CGSize(width: 224, height: 224), debugPrefix: "buffered")
+            let goalPointArray = metadata.requiresGoalPoint ? getGoalPointForModel() : nil
+            let bufferEntry = FrameBufferEntry(mlArray: processedFrame, goalPoint: goalPointArray)
+            
+            frameBuffer.append(bufferEntry)
+            
+            // Maintain rolling buffer of 3 frames
+            if frameBuffer.count > maxBufferSize {
+                frameBuffer.removeFirst(frameBuffer.count - maxBufferSize)
+            }
+        } catch {
+            print("ERROR: Failed to buffer frame: \(error)")
             return
         }
         
-        lastInferenceTime = timestamp
+        // Run inference if:
+        // 1. This is the first inference (to create initial target cube), OR
+        // 2. Proximity is reached AND we haven't just run inference
+        let isFirstInference = !hasRunFirstInference && frameBuffer.count >= maxBufferSize
+        let isProximityTriggered = proximityReached && !isInferencePending
+        let shouldRunInference = isFirstInference || isProximityTriggered
         
-        // Prepare input synchronously to avoid capturing non-sendable CVPixelBuffer
+        if debugLoggingEnabled && frameBuffer.count == maxBufferSize && !shouldRunInference {
+            print("[MLInference] Buffer full (\(frameBuffer.count)) but not triggering: firstInference=\(hasRunFirstInference), proximity=\(proximityReached), pending=\(isInferencePending)")
+        }
+        
+        guard shouldRunInference else {
+            return
+        }
+        
+        // Ensure we have a model loaded
+        guard let model = model else {
+            print("ERROR: No model loaded for inference")
+            return
+        }
+        
+        // Mark inference as pending
+        isInferencePending = true
+        proximityReached = false  // Reset proximity flag
+        
+        if debugLoggingEnabled {
+            print("[MLInference] Running inference - firstTime: \(!hasRunFirstInference), buffer: \(frameBuffer.count)")
+        }
+        
+        // Prepare input using buffered frames
         let modelInput: MLFeatureProvider
         do {
-            modelInput = try prepareModelInput(pixelBuffer, metadata: metadata)
+            modelInput = try prepareModelInputFromBuffer(metadata: metadata)
         } catch {
             print("ERROR: Failed to prepare model input: \(error)")
+            isInferencePending = false
             return
         }
         
@@ -506,20 +572,47 @@ class MLInferenceManager: ObservableObject {
             
             autoreleasepool {
                 do {
-                    print("DEBUG: Running model prediction...")
+                    print("DEBUG: Running model prediction with buffered frames...")
                     let output = try model.prediction(from: modelInput)
                     print("DEBUG: Model prediction succeeded")
                     
                     let inferenceTime = CACurrentMediaTime() - startTime
                     self.processInferenceResults(output, inferenceTime: inferenceTime)
+                    
+                    // Reset pending flag and mark first inference complete
+                    DispatchQueue.main.async {
+                        self.isInferencePending = false
+                        if !self.hasRunFirstInference {
+                            self.hasRunFirstInference = true
+                            print("[MLInference] First inference complete - target cube should now be visible")
+                        }
+                    }
                 } catch {
                     print("ERROR: Model inference failed: \(error)")
+                    DispatchQueue.main.async {
+                        self.isInferencePending = false
+                    }
                 }
             }
         }
     }
     
     // MARK: - Dynamic Input Preparation
+    private func prepareModelInputFromBuffer(metadata: ModelMetadata) throws -> MLFeatureProvider {
+        print("DEBUG: Preparing input from buffer for \(metadata.modelType.displayName) model")
+        
+        guard !frameBuffer.isEmpty else {
+            throw NSError(domain: "MLInferenceManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Frame buffer is empty"])
+        }
+        
+        switch metadata.modelType {
+        case .pointConditioned:
+            return try prepareVQBeTInputFromBuffer(metadata: metadata)
+        case .standard:
+            return try prepareLegacyInputFromBuffer(metadata: metadata)
+        }
+    }
+    
     private func prepareModelInput(_ pixelBuffer: CVPixelBuffer, metadata: ModelMetadata) throws -> MLFeatureProvider {
         print("DEBUG: Preparing input for \(metadata.modelType.displayName) model")
         switch metadata.modelType {
@@ -735,6 +828,157 @@ class MLInferenceManager: ObservableObject {
         return try MLDictionaryFeatureProvider(dictionary: [inputName: MLFeatureValue(multiArray: inputArray)])
     }
     
+    // MARK: - Buffer-based Input Preparation Methods
+    private func prepareVQBeTInputFromBuffer(metadata: ModelMetadata) throws -> MLFeatureProvider {
+        let goalPointArray = frameBuffer.last?.goalPoint ?? getGoalPointForModel()
+        guard let goalPointArray = goalPointArray else {
+            throw NSError(domain: "MLInferenceManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Goal point required"])
+        }
+        
+        let imageInputName = metadata.getImageInputName() ?? "camera_image"
+        let goalInputName = metadata.getGoalInputName() ?? "goal_point"
+        let temporalFrames = metadata.temporalFrames
+        
+        // Determine expected rank from model
+        let expectedRank: Int = {
+            if let d = model?.modelDescription.inputDescriptionsByName[imageInputName],
+               d.type == .multiArray,
+               let shape = d.multiArrayConstraint?.shape {
+                return shape.count
+            }
+            return 4
+        }()
+        
+        print("DEBUG: Using buffered frames - temporalFrames: \(temporalFrames), bufferSize: \(frameBuffer.count)")
+        
+        // Build image array from buffer
+        let imageArray: MLMultiArray
+        if temporalFrames > 1 {
+            // Temporal model: use last N frames from buffer
+            let framesToUse = min(temporalFrames, frameBuffer.count)
+            let paddingNeeded = temporalFrames - framesToUse
+            
+            imageArray = try MLMultiArray(shape: [1, NSNumber(value: temporalFrames), 3, 224, 224], dataType: .float32)
+            
+            // Pad with repeated first frame if needed
+            if paddingNeeded > 0 {
+                let srcFrame = frameBuffer[0].mlArray
+                for t in 0..<paddingNeeded {
+                    for c in 0..<3 {
+                        for h in 0..<224 {
+                            for w in 0..<224 {
+                                let value = srcFrame[[0, NSNumber(value: c), NSNumber(value: h), NSNumber(value: w)]]
+                                imageArray[[0, NSNumber(value: t), NSNumber(value: c), NSNumber(value: h), NSNumber(value: w)]] = value
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Copy actual frames from buffer
+            for (idx, entry) in frameBuffer.suffix(framesToUse).enumerated() {
+                let t = paddingNeeded + idx
+                let srcFrame = entry.mlArray
+                for c in 0..<3 {
+                    for h in 0..<224 {
+                        for w in 0..<224 {
+                            let value = srcFrame[[0, NSNumber(value: c), NSNumber(value: h), NSNumber(value: w)]]
+                            imageArray[[0, NSNumber(value: t), NSNumber(value: c), NSNumber(value: h), NSNumber(value: w)]] = value
+                        }
+                    }
+                }
+            }
+        } else {
+            // Single-frame: use latest from buffer
+            let latestFrame = frameBuffer.last!.mlArray
+            
+            if expectedRank == 5 {
+                imageArray = try MLMultiArray(shape: [1, 1, 3, 224, 224], dataType: .float32)
+                for c in 0..<3 {
+                    for h in 0..<224 {
+                        for w in 0..<224 {
+                            let value = latestFrame[[0, NSNumber(value: c), NSNumber(value: h), NSNumber(value: w)]]
+                            imageArray[[0, 0, NSNumber(value: c), NSNumber(value: h), NSNumber(value: w)]] = value
+                        }
+                    }
+                }
+            } else {
+                imageArray = latestFrame
+            }
+        }
+        
+        // Prepare goal array
+        let goalArray: MLMultiArray = {
+            if let d = model?.modelDescription.inputDescriptionsByName[goalInputName],
+               d.type == .multiArray,
+               let shape = d.multiArrayConstraint?.shape {
+                let dims = shape.map { $0.intValue }
+                
+                if dims.count == 3 && dims[1] > 1 && dims[2] == 3 {
+                    let arr = try? MLMultiArray(shape: shape, dataType: .float32)
+                    if let arr = arr {
+                        for t in 0..<dims[1] {
+                            for i in 0..<3 { arr[[0, NSNumber(value: t), NSNumber(value: i)]] = NSNumber(value: goalPointArray[i]) }
+                        }
+                        return arr
+                    }
+                } else if dims.count == 3 && dims[2] == 3 {
+                    let arr = try? MLMultiArray(shape: shape, dataType: .float32)
+                    if let arr = arr {
+                        for i in 0..<3 { arr[[0, 0, i] as [NSNumber]] = NSNumber(value: goalPointArray[i]) }
+                        return arr
+                    }
+                } else if dims.count == 2 && dims == [1,3] {
+                    let arr = try? MLMultiArray(shape: shape, dataType: .float32)
+                    if let arr = arr {
+                        for i in 0..<3 { arr[[0, i] as [NSNumber]] = NSNumber(value: goalPointArray[i]) }
+                        return arr
+                    }
+                }
+            }
+            let arr = try! MLMultiArray(shape: [1, 3], dataType: .float32)
+            for i in 0..<3 { arr[[0, i] as [NSNumber]] = NSNumber(value: goalPointArray[i]) }
+            return arr
+        }()
+        
+        return try MLDictionaryFeatureProvider(dictionary: [
+            imageInputName: MLFeatureValue(multiArray: imageArray),
+            goalInputName: MLFeatureValue(multiArray: goalArray)
+        ])
+    }
+    
+    private func prepareLegacyInputFromBuffer(metadata: ModelMetadata) throws -> MLFeatureProvider {
+        let inputName = metadata.getImageInputName() ?? "x_1"
+        let latestFrame = frameBuffer.last!.mlArray
+        let inputArray: MLMultiArray
+        
+        if let d = model?.modelDescription.inputDescriptionsByName[inputName],
+           d.type == .multiArray,
+           let shape = d.multiArrayConstraint?.shape {
+            
+            if shape.count == 5 {
+                let height = 224
+                let width = 224
+                inputArray = try MLMultiArray(shape: [1, 1, 3, NSNumber(value: height), NSNumber(value: width)], dataType: .float32)
+                
+                for c in 0..<3 {
+                    for h in 0..<height {
+                        for w in 0..<width {
+                            let value = latestFrame[[0, NSNumber(value: c), NSNumber(value: h), NSNumber(value: w)]]
+                            inputArray[[0, 0, NSNumber(value: c), NSNumber(value: h), NSNumber(value: w)]] = value
+                        }
+                    }
+                }
+            } else {
+                inputArray = latestFrame
+            }
+        } else {
+            inputArray = latestFrame
+        }
+        
+        return try MLDictionaryFeatureProvider(dictionary: [inputName: MLFeatureValue(multiArray: inputArray)])
+    }
+    
     // MARK: - Unified Frame Processing
     private func processFrame(_ pixelBuffer: CVPixelBuffer, targetSize: CGSize, debugPrefix: String) throws -> MLMultiArray {
         let width = Int(targetSize.width)
@@ -867,8 +1111,12 @@ class MLInferenceManager: ObservableObject {
             // Update gripper value for overlay switching (7th element, index 6)
             if jointPositions.count >= 7 {
                 currentGripperValue = jointPositions[6]
+                let isGripperClosed = currentGripperValue < 0.6
+                
                 Task { @MainActor [weak self] in
                     self?.updateGripperOverlayDisplay()
+                    // Update AR visualization manager gripper state to stop visualization when closed
+                    self?.arVisualizationManager?.setGripperState(isClosed: isGripperClosed)
                 }
             }
 
@@ -919,8 +1167,12 @@ class MLInferenceManager: ObservableObject {
             // Update gripper value for overlay switching (7th element, index 6)
             if jointPositions.count >= 7 {
                 currentGripperValue = jointPositions[6]
+                let isGripperClosed = currentGripperValue < 0.6
+                
                 Task { @MainActor [weak self] in
                     self?.updateGripperOverlayDisplay()
+                    // Update AR visualization manager gripper state to stop visualization when closed
+                    self?.arVisualizationManager?.setGripperState(isClosed: isGripperClosed)
                 }
             }
 
@@ -974,6 +1226,14 @@ class MLInferenceManager: ObservableObject {
         isInferenceEnabled = false
         latestResult = nil
         print("Inference disabled")
+    }
+    
+    func resetInferenceState() {
+        hasRunFirstInference = false
+        proximityReached = false
+        isInferencePending = false
+        frameBuffer.removeAll()
+        print("Inference state reset - ready for new recording")
     }
     
     func setInferenceFrequency(_ frequency: InferenceFrequency) {

@@ -40,7 +40,7 @@ struct SettingsView : View{
         ZStack{
             Color.customizedBackground
                             .ignoresSafeArea()
-            Form{
+            Form {
                 Section(header: Text("GENERAL")) {
                     HStack {
                         VStack(alignment: .leading, spacing: 8) {
@@ -216,52 +216,10 @@ struct SettingsView : View{
                     }
                 }
                 
-                // MARK: - Movement Tracking Section
-                Section(header: Text("MOVEMENT TRACKING")) {
-                    HStack {
-                        Text("Show Movement Arrows")
-                            .font(.body)
-                            .foregroundColor(.primary)
-                        Spacer()
-                        Toggle("", isOn: $arViewModel.arVisualizationManager.showMovementArrows)
-                            .onChange(of: arViewModel.arVisualizationManager.showMovementArrows) { oldValue, newValue in
-                                arViewModel.arVisualizationManager.toggleMovementArrows()
-                            }
-                    }
-                    .padding(.vertical, 5)
-                    
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Max Movement Arrows")
-                            .font(.body)
-                            .foregroundColor(.primary)
-                        
-                        let maxArrowsBinding = Binding<Double>(
-                            get: { Double(arViewModel.arVisualizationManager.maxArrows) },
-                            set: { newValue in
-                                arViewModel.arVisualizationManager.setMaxArrows(Int(newValue))
-                            }
-                        )
-                        
-                        HStack {
-                            Text("1")
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                            
-                            Slider(value: maxArrowsBinding, in: 1...20, step: 1)
-                            
-                            Text("20")
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                        }
-                        
-                        Text("Current: \(arViewModel.arVisualizationManager.maxArrows) arrows")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                    }
-                    .padding(.vertical, 5)
-                    
+                // MARK: - Cube Visualization Section
+                Section(header: Text("CUBE VISUALIZATION")) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Movement Tracking Status")
+                        Text("Visualization Status")
                             .font(.body)
                             .foregroundColor(.primary)
                         
@@ -276,16 +234,16 @@ struct SettingsView : View{
                         }
                         
                         HStack {
-                            Text("Frequency:")
+                            Text("Action State:")
                                 .font(.caption)
                                 .foregroundColor(.gray)
                             Spacer()
-                            Text(arViewModel.arVisualizationManager.visualizationFrequency.displayName)
+                            Text(arViewModel.arVisualizationManager.actionState.displayName)
                                 .font(.caption)
-                                .foregroundColor(.gray)
+                                .foregroundColor(arViewModel.arVisualizationManager.actionState == .waiting ? .yellow : .green)
                         }
                         
-                        Text("Shows arrows between consecutive ML inference positions")
+                        Text("Shows blue cube (current) and green cube (target) for action guidance")
                             .font(.caption2)
                             .foregroundColor(.gray)
                             .padding(.top, 4)

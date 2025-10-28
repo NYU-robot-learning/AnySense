@@ -60,12 +60,6 @@ struct ReadView : View{
                             .scaledToFit()
                             .allowsHitTesting(false)
                     }
-                    
-                    // HUD-style Reticle Overlay (shows current pose/direction)
-                    if arViewModel.arVisualizationManager.isVisualizationEnabled {
-                        ReticleOverlayView()
-                            .allowsHitTesting(false)
-                    }
                 }
                 .frame(width: arViewWidth, height: arViewHeight)
                 .padding(.bottom, arViewPadding)
@@ -79,6 +73,22 @@ struct ReadView : View{
                                 if let mlManager = arViewModel.mlManager {
                                     MLInferenceResultsView(mlManager: mlManager)
                                 }
+                            }
+                            
+                            // Action State Display (cube visualization status)
+                            if arViewModel.arVisualizationManager.isVisualizationEnabled {
+                                HStack(spacing: 4) {
+                                    Text("Next action:")
+                                        .font(.caption)
+                                        .foregroundColor(.white)
+                                    Text(arViewModel.arVisualizationManager.actionState.displayName)
+                                        .font(.caption)
+                                        .bold()
+                                        .foregroundColor(arViewModel.arVisualizationManager.actionState == .waiting ? .yellow : .green)
+                                }
+                                .padding(8)
+                                .background(Color.black.opacity(0.6))
+                                .cornerRadius(8)
                             }
                             
                         }

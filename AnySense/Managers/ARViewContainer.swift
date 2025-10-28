@@ -484,6 +484,9 @@ class ARViewModel: ObservableObject{
     }
     
     func startUSBStreaming() {
+        // Reset ML inference state for new streaming session
+        mlManager?.resetInferenceState()
+        
         displayLink = CADisplayLink(target: self, selector: #selector(sendFrameUSB))
         displayLink?.preferredFrameRateRange = CAFrameRateRange(minimum: Float(self.userFPS!), maximum: Float(self.userFPS!), preferred: Float(self.userFPS!))
         displayLink?.add(to: .main, forMode: .common)
@@ -496,6 +499,9 @@ class ARViewModel: ObservableObject{
         displayLink = nil
         isUSBStreamingActive = false
         mlManager?.setUSBStreamingState(isActive: false)
+        
+        // Reset ML inference state when stopping
+        mlManager?.resetInferenceState()
     }
     
     func setupUSBStreaming() {
@@ -737,6 +743,9 @@ class ARViewModel: ObservableObject{
     func startRecording() -> RecordingFiles {
         let saveFileNames = setupRecording()
         
+        // Reset ML inference state for new recording
+        mlManager?.resetInferenceState()
+        
         // Start AR pose visualization with origin at current camera position
         arVisualizationManager.startRecordingVisualization()
         
@@ -769,6 +778,9 @@ class ARViewModel: ObservableObject{
         
         // Stop AR pose visualization
         arVisualizationManager.stopRecordingVisualization()
+        
+        // Reset ML inference state when stopping
+        mlManager?.resetInferenceState()
         
         if(ifAudioEnable) {
             audioSession.stopRunning()
@@ -1235,7 +1247,7 @@ class ARViewModel: ObservableObject{
             }
             .store(in: &cancellables)
         
-        // ML results are now accessed directly during streaming for better real-time performance
+     
     }
 
 

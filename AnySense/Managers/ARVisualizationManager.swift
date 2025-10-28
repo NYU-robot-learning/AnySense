@@ -4,13 +4,17 @@ import ARKit
 import simd
 import UIKit
 
-// MARK: - Directional Arrow Data
-struct DirectionalArrow {
-    let entity: Entity
-    let anchor: AnchorEntity
-    let timestamp: TimeInterval
-    let magnitude: Float
-    let movementVector: SIMD3<Float>  // Store the actual movement vector for color updates
+// MARK: - Action State
+enum ActionState {
+    case waiting  // User is moving toward target
+    case reached  // Cubes overlapped, inference triggered
+    
+    var displayName: String {
+        switch self {
+        case .waiting: return "waiting"
+        case .reached: return "reached"
+        }
+    }
 }
 
 // MARK: - Visualization Frequency (Matching MLInferenceManager)
@@ -41,15 +45,23 @@ class ARVisualizationManager: ObservableObject {
     
     // MARK: - Published Properties
     @Published var isVisualizationEnabled: Bool = false
-    @Published var showMovementArrows: Bool = true
-    @Published var maxArrows: Int = 1  // Only show one arrow at a time
+    @Published var actionState: ActionState = .waiting
     @Published var visualizationFrequency: VisualizationFrequency = .medium
     
     // MARK: - Private Properties  
     private var arView: ARView?
     private var worldOriginAnchor: AnchorEntity?
-    private var movementArrows: [DirectionalArrow] = []
     private var lastVisualizationTime: CFTimeInterval = 0
+    
+    // Cube visualization entities
+    private var currentPoseCubeEntity: ModelEntity?
+    private var targetCubeEntity: ModelEntity?
+    private var targetCubeDisplayPosition: SIMD3<Float>?  // Where target cube is displayed (with offset)
+    private var actualCameraPosition: SIMD3<Float>?  // Actual camera position for proximity
+    private var targetCameraPosition: SIMD3<Float>?  // Target camera position for proximity (without offset)
+    
+    // Proximity detection
+    private let proximityThreshold: Float = 0.10  // 10cm for "merged" state
     
     // Target/device pose state for point-conditioned flows
     private var targetPose: SIMD3<Float>?
@@ -63,37 +75,14 @@ class ARVisualizationManager: ObservableObject {
     private var previousWorldPosition: SIMD3<Float>?
     private var hasEstablishedOrigin: Bool = false
     
-    // Movement detection to prevent overlapping arrows
-    private var lastArrowPosition: SIMD3<Float>?
-    private var movementThreshold: Float = 0.01  // 1cm minimum movement between arrows
-    
-    // Trajectory deviation tracking
-    private var expectedTrajectory: [SIMD3<Float>] = []  // Expected movement trajectory
-    private var trajectoryDeviationThreshold: Float = 0.02  // 2cm deviation threshold for green/red
-    
-    // Arrow visual configuration
-    private let arrowBaseLength: Float = 0.25      // Base length in meters (increased for visibility)
-    private let arrowThickness: Float = 0.012      // Arrow shaft thickness (increased for visibility)
-    private let arrowHeadRatio: Float = 0.3        // Head vs shaft ratio (increased for visibility)
-    private let arrowHeadWidth: Float = 0.035      // Arrow head width (increased for visibility)
-    private let axisLength: Float = 0.08           // Coordinate axes length
-    private let axisThickness: Float = 0.005       // Coordinate axes thickness
-    
-    // Arrow lifecycle
-    private let arrowLifetime: TimeInterval = 3.0  // Arrows fade after 3 seconds
+    // Cube visual configuration
+    private let cubeSize: Float = 0.02  // 2cm cubes
+    private let currentCubeForwardOffset: Float = -0.010  // -5cm offset (out of screen, towards camera)
+    private let targetCubeForwardOffset: Float = 0.00  // -3cm offset for target cube
+    private let goalForwardOffset: Float = 0.00  // -5cm offset for goal point
     
     // Debug controls
     var debugLoggingEnabled: Bool = true
-    var debugAlwaysDrawArrow: Bool = false
-    var debugForceColorVariation: Bool = false  // When true, forces different colors for testing
-    // Visualization adjustments
-    var applyEndOffset: Bool = true            // apply labels-forward (+Y_label) → -Z_camera offset
-    var endOffsetMeters: Float = 0.05          // meters; matches training shift used in labels.json mapping
-    var useMagnitudeConfidence: Bool = true    // if true, scale color by delta magnitude; otherwise constant
-    
-    // Enhanced visibility controls
-    var enhancedVisibilityMode: Bool = false   // When true, makes arrows more prominent for tracking
-    var visibilityOffsetDistance: Float = -0.1  // Distance to offset arrows from camera for visibility
     
     // Gripper state control
     var isGripperClosed: Bool = false  // When true, stops visualization
@@ -103,7 +92,7 @@ class ARVisualizationManager: ObservableObject {
     
     // MARK: - Initialization 
     init() {
-        log("Initialized with delta-based movement arrows")
+        log("Initialized with cube-based visualization")
     }
     
     // MARK: - Logging Helper
@@ -130,6 +119,9 @@ class ARVisualizationManager: ObservableObject {
         establishWorldOrigin()
         enableVisualization()
         
+        // Reset gripper state to allow visualization
+        isGripperClosed = false
+        
         print("Started movement visualization - enabled=\(isVisualizationEnabled)")
     }
     
@@ -137,6 +129,12 @@ class ARVisualizationManager: ObservableObject {
         disableVisualization()
         clearAllVisualization()
         resetMovementTracking()
+        
+        // Reset action state
+        actionState = .waiting
+        
+        // Reset gripper state
+        isGripperClosed = false
         
         print("Stopped movement visualization and reset tracking")
     }
@@ -179,8 +177,6 @@ class ARVisualizationManager: ObservableObject {
         worldOrigin = SIMD3<Float>(0, 0, 0)
         currentWorldPosition = SIMD3<Float>(0, 0, 0)
         previousWorldPosition = nil
-        lastArrowPosition = nil  // Reset arrow position tracking
-        expectedTrajectory = []  // Reset expected trajectory
         
         // Remove goal point visualization
         goalPointEntity?.removeFromParent()
@@ -207,11 +203,15 @@ class ARVisualizationManager: ObservableObject {
         goalPointEntity?.removeFromParent()
         goalPointEntity = nil
         
-        // Remove all movement arrows
-        for arrow in movementArrows {
-            arrow.anchor.removeFromParent()
-        }
-        movementArrows.removeAll()
+        // Remove cube visualizations
+        currentPoseCubeEntity?.removeFromParent()
+        currentPoseCubeEntity = nil
+        
+        targetCubeEntity?.removeFromParent()
+        targetCubeEntity = nil
+        targetCubeDisplayPosition = nil
+        targetCameraPosition = nil
+        actualCameraPosition = nil
     }
 
     // MARK: - Initialization helper
@@ -223,23 +223,64 @@ class ARVisualizationManager: ObservableObject {
         }
     }
     
-    func toggleMovementArrows() {
-        showMovementArrows.toggle()
-        if !showMovementArrows {
-            // Remove all movement arrows
-            for arrow in movementArrows {
-                arrow.anchor.removeFromParent()
+    // MARK: - Cube Management Methods
+    func updateCurrentPoseCube(position: SIMD3<Float>) {
+        guard isVisualizationEnabled, !isGripperClosed else { return }
+        
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, let worldOriginAnchor = self.worldOriginAnchor else { 
+                if self?.debugLoggingEnabled == true {
+                    print("[Viz] Cannot update current cube - anchor not ready")
+                }
+                return 
             }
-            movementArrows.removeAll()
+            
+            // Create or update current pose cube
+            if self.currentPoseCubeEntity == nil {
+                let cubeMesh = MeshResource.generateBox(size: self.cubeSize)
+                let blueMaterial = SimpleMaterial(color: UIColor.systemBlue.withAlphaComponent(0.7), isMetallic: false)
+                self.currentPoseCubeEntity = ModelEntity(mesh: cubeMesh, materials: [blueMaterial])
+                worldOriginAnchor.addChild(self.currentPoseCubeEntity!)
+                
+                if self.debugLoggingEnabled {
+                    print("[Viz] Current pose cube created (blue, \(self.cubeSize)m)")
+                }
+            }
+            
+            // Update position
+            self.currentPoseCubeEntity?.position = position
+            
+            // Check proximity if we have a target cube
+            self.checkProximityAndUpdateState()
         }
     }
     
-    func setMaxArrows(_ count: Int) {
-        maxArrows = max(1, min(20, count))
-        // Trim existing arrows if needed
-        while movementArrows.count > maxArrows {
-            let oldArrow = movementArrows.removeFirst()
-            oldArrow.anchor.removeFromParent()
+    private func checkProximityAndUpdateState() {
+        guard !isGripperClosed,
+              let cameraPos = actualCameraPosition,
+              let targetPos = targetCameraPosition else { return }
+        
+        let distance = length(cameraPos - targetPos)
+        
+        if distance <= proximityThreshold {
+            // Camera reached target - signal inference trigger
+            if actionState != .reached {
+                actionState = .reached
+                log("Target reached - triggering inference (distance: \(String(format: "%.3f", distance))m)")
+                
+                // Notify observers that proximity was reached
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("ProximityReached"),
+                    object: nil
+                )
+            }
+        } else {
+            if actionState != .waiting {
+                actionState = .waiting
+                if debugLoggingEnabled {
+                    log("State changed to waiting (distance: \(String(format: "%.3f", distance))m)")
+                }
+            }
         }
     }
     
@@ -249,40 +290,31 @@ class ARVisualizationManager: ObservableObject {
         print("AR Visualization frequency set to: \(frequency.displayName)")
     }
     
-    // MARK: - Enhanced Visibility Methods
-    func enableEnhancedVisibility() {
-        enhancedVisibilityMode = true
-        visibilityOffsetDistance = 0.15  // Increase offset for better visibility
-        log("Enhanced visibility enabled - arrows will be more prominent")
-    }
-    
-    func disableEnhancedVisibility() {
-        enhancedVisibilityMode = false
-        visibilityOffsetDistance = 0.1  // Reset to default offset
-        log("Enhanced visibility disabled")
-    }
-    
-    func setVisibilityOffset(_ distance: Float) {
-        visibilityOffsetDistance = max(0.05, min(0.3, distance))  // Clamp between 5cm and 30cm
-        log("Visibility offset: \(visibilityOffsetDistance)m")
-    }
-    
-    func setMovementThreshold(_ threshold: Float) {
-        movementThreshold = max(0.005, min(0.05, threshold))  // Clamp between 5mm and 5cm
-        log("Movement threshold: \(movementThreshold)m")
-    }
-    
-    func toggleConfidenceMode() {
-        useMagnitudeConfidence.toggle()
-        print("Confidence mode: \(useMagnitudeConfidence ? "Magnitude-based" : "Direction-based")")
+    // MARK: - Proximity Configuration
+    func setProximityThreshold(_ threshold: Float) {
+        // Allow adjusting the merge distance threshold if needed
+        log("Proximity threshold: \(threshold)m")
     }
     
     // MARK: - Gripper State Control
     func setGripperState(isClosed: Bool) {
+        let previousState = isGripperClosed
         isGripperClosed = isClosed
-        if isClosed {
-            print("Gripper closed - visualization will be disabled")
-        } else {
+        
+        if isClosed && !previousState {
+            // Gripper just closed - hide all visualization
+            print("Gripper closed - hiding all visualization")
+            
+            DispatchQueue.main.async { [weak self] in
+                // Remove cubes
+                self?.currentPoseCubeEntity?.removeFromParent()
+                self?.targetCubeEntity?.removeFromParent()
+                self?.goalPointEntity?.removeFromParent()
+                
+                // Set action state to waiting
+                self?.actionState = .waiting
+            }
+        } else if !isClosed && previousState {
             print("Gripper opened - visualization enabled")
         }
     }
@@ -319,42 +351,28 @@ class ARVisualizationManager: ObservableObject {
         return useVirtualGripper && !isUSBStreamingActive
     }
     
-    func enableDebugColorVariation() {
-        debugForceColorVariation = true
-        print("Debug color variation enabled - arrows will cycle through colors")
-    }
-    
-    func disableDebugColorVariation() {
-        debugForceColorVariation = false
-        print("Debug color variation disabled")
-    }
-    
-    // MARK: - Trajectory Deviation Control
-    func setExpectedTrajectory(_ trajectory: [SIMD3<Float>]) {
-        expectedTrajectory = trajectory
-        print("Expected trajectory set with \(trajectory.count) points")
-    }
-    
-    func setDeviationThreshold(_ threshold: Float) {
-        trajectoryDeviationThreshold = max(0.005, min(0.1, threshold))  // Clamp between 5mm and 10cm
-        print("Deviation threshold set to: \(trajectoryDeviationThreshold)m")
-    }
-    
-    func updateArrowColors() {
-        // Update colors of all existing arrows based on current trajectory deviation
-        for arrow in movementArrows {
-            // Calculate new confidence based on current trajectory
-            let arrowMovement = extractMovementFromArrow(arrow)
-            let newConfidence = calculateTrajectoryDeviationConfidence(actualMovement: arrowMovement)
-            updateArrowColor(arrow: arrow, confidence: newConfidence)
-        }
-        print("Updated colors for \(movementArrows.count) existing arrows")
-    }
     
     // MARK: - Device Pose Integration
     func updateActualDevicePose(from arFrame: ARFrame) {
         let t = arFrame.camera.transform
         actualDevicePose = SIMD3<Float>(t.columns.3.x, t.columns.3.y, t.columns.3.z)
+        
+        // Update current pose cube position every frame to track camera
+        if isVisualizationEnabled && hasEstablishedOrigin {
+            let currentCameraPosition = SIMD3<Float>(
+                t.columns.3.x,
+                t.columns.3.y,
+                t.columns.3.z
+            ) - worldOrigin
+            
+            // Store actual camera position for proximity checking
+            actualCameraPosition = currentCameraPosition
+            
+            // Position blue cube with -5cm forward offset (Z direction only)
+            let cubePosition = currentCameraPosition + SIMD3<Float>(0, 0, currentCubeForwardOffset)
+            
+            updateCurrentPoseCube(position: cubePosition)
+        }
     }
     
     func setTargetPose(_ worldPoint: SIMD3<Float>) {
@@ -372,17 +390,7 @@ class ARVisualizationManager: ObservableObject {
     
     // MARK: - ML Integration Method
     func updatePoseFromMLOutput(_ jointActions: [Float], timestamp: CFTimeInterval = CACurrentMediaTime()) {
-        // Apply frequency throttling
-        if timestamp - lastVisualizationTime < visualizationFrequency.interval {
-            if debugLoggingEnabled {
-                // Visualization throttled
-            }
-            return
-        }
-        
-        lastVisualizationTime = timestamp
-        
-        guard isVisualizationEnabled, showMovementArrows else { return }
+        guard isVisualizationEnabled else { return }
         guard hasEstablishedOrigin else {
             print("World origin not established - cannot track movement")
             return
@@ -399,7 +407,7 @@ class ARVisualizationManager: ObservableObject {
         }
         
         // Interpret joint actions as movement deltas in CAMERA coordinates, then rotate into world frame
-        let (cameraDeltaTranslation, _, confidence) = interpretMLDirections(jointActions, timestamp: timestamp)
+        let (cameraDeltaTranslation, _) = interpretMLDirections(jointActions, timestamp: timestamp)
         let cameraTransform = getCurrentCameraTransform()
         let rotationWorldFromCamera = simd_float3x3(
             columns: (
@@ -409,13 +417,12 @@ class ARVisualizationManager: ObservableObject {
             )
         )
         let deltaTranslation = rotationWorldFromCamera * cameraDeltaTranslation
+        
         if debugLoggingEnabled {
             func fmt(_ f: Float) -> String { String(format: "%.3f", f) }
             func fmt3(_ v: SIMD3<Float>) -> String { "(\(fmt(v.x)), \(fmt(v.y)), \(fmt(v.z)))" }
-            print("[Viz] Δcam \(fmt3(cameraDeltaTranslation)) → Δworld \(fmt3(deltaTranslation)) | confidence: \(fmt(confidence))")
+            print("[Viz] Δcam \(fmt3(cameraDeltaTranslation)) → Δworld \(fmt3(deltaTranslation))")
         }
-        
-        // ML coordinate transform applied
         
         // Get current camera position relative to world origin
         let currentCameraPosition = SIMD3<Float>(
@@ -424,278 +431,72 @@ class ARVisualizationManager: ObservableObject {
             cameraTransform.columns.3.z
         ) - worldOrigin
 
-        // Show ML policy arrow from current camera position, not accumulated position
-        // Position arrows further out for better visibility (configurable offset distance)
-        let cameraForward = SIMD3<Float>(cameraTransform.columns.2.x, cameraTransform.columns.2.y, cameraTransform.columns.2.z)
-        let offsetPosition = currentCameraPosition + cameraForward * visibilityOffsetDistance
-        let targetPosition = offsetPosition + deltaTranslation
-
-        // Only create movement arrow if there's meaningful movement AND sufficient distance from last arrow
-        let movementMagnitude = length(deltaTranslation)
-        let shouldCreateArrow: Bool
+        // Calculate target position from actual camera position + action delta
+        let targetCamPos = currentCameraPosition + deltaTranslation
         
-        if let lastPos = lastArrowPosition {
-            let distanceFromLastArrow = length(offsetPosition - lastPos)
-            shouldCreateArrow = (movementMagnitude > 0.002 || debugAlwaysDrawArrow) && distanceFromLastArrow > movementThreshold
-        } else {
-            shouldCreateArrow = movementMagnitude > 0.002 || debugAlwaysDrawArrow
-        }
+        // Store target camera position for proximity checking
+        targetCameraPosition = targetCamPos
         
-        if shouldCreateArrow {
-            createMovementArrow(
-                from: offsetPosition,
-                to: targetPosition,
-                confidence: confidence,
-                timestamp: timestamp
-            )
-            lastArrowPosition = offsetPosition  // Update last arrow position
-        } else {
-            // Update colors of existing arrows based on current trajectory deviation
-            updateArrowColors()
-        }
-
-        // Update tracking position to current camera position (not accumulated)
+        // Apply -5cm offset to green target cube for display (Z direction only)
+        let targetCubePos = targetCamPos + SIMD3<Float>(0, 0, targetCubeForwardOffset)
+        
+        // Update target cube
+        updateTargetCube(position: targetCubePos)
+        
+        // Update tracking position
         currentWorldPosition = currentCameraPosition
-        
-        // Position updated with movement delta
     }
     
-    private func interpretMLDirections(_ jointActions: [Float], timestamp: CFTimeInterval = CACurrentMediaTime()) -> (translation: SIMD3<Float>, rotation: simd_quatf, confidence: Float) {
+    private func interpretMLDirections(_ jointActions: [Float], timestamp: CFTimeInterval = CACurrentMediaTime()) -> (translation: SIMD3<Float>, rotation: simd_quatf) {
         // Map policy action → CAMERA frame (translation and Euler rotation)
         let action7 = Array(jointActions.prefix(7))
-        // Determine device interface orientation → quarter turns around camera Z
-        // var quarterTurns: Int = 0
-        // if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-        //     switch windowScene.interfaceOrientation {
-        //     case .landscapeLeft:
-        //         quarterTurns = 1
-        //     case .landscapeRight:
-        //         quarterTurns = -1
-        //     case .portraitUpsideDown:
-        //         quarterTurns = 2
-        //     default:
-        //         quarterTurns = 0
-        //     }
-        // }
         let mapped = ActionTransformUtils.policyToCameraEulerAction(action7, rotationUnit: .eulerXYZ)
-        var translationCamera = SIMD3<Float>(mapped[0], mapped[1], mapped[2])
-        // Optional end-offset in CAMERA frame: labels forward (+Y_label) == -Z_camera
-        if applyEndOffset {
-            translationCamera += SIMD3<Float>(0, 0, -endOffsetMeters)
-        }
+        let translationCamera = SIMD3<Float>(mapped[0], mapped[1], mapped[2])
         let rotationCamera = eulerToQuaternion(roll: mapped[3], pitch: mapped[4], yaw: mapped[5])
 
-        // Confidence: based on trajectory deviation (green = close to expected, red = far from expected)
-        let movementMagnitude = length(translationCamera)
-        let confidence: Float
-        
-        if debugForceColorVariation {
-            // Force color variation for testing - cycle through colors
-            let timeBasedConfidence = Float((timestamp.truncatingRemainder(dividingBy: 3.0)) / 3.0)
-            confidence = timeBasedConfidence
-        } else {
-            // Calculate trajectory deviation-based confidence
-            confidence = calculateTrajectoryDeviationConfidence(actualMovement: translationCamera)
-        }
-
         // Return CAMERA-frame delta; caller will rotate to WORLD frame using current camera pose
-        return (translationCamera, rotationCamera, confidence)
+        return (translationCamera, rotationCamera)
     }
     
-    // MARK: - Trajectory Deviation Calculation
-    private func calculateTrajectoryDeviationConfidence(actualMovement: SIMD3<Float>) -> Float {
-        // If no expected trajectory is set, use movement magnitude as fallback
-        guard !expectedTrajectory.isEmpty else {
-            let magnitude = length(actualMovement)
-            return min(1.0, max(0.0, magnitude * 20.0))  // Scale magnitude to 0-1
+    func updateTargetCube(position: SIMD3<Float>) {
+        guard isVisualizationEnabled, !isGripperClosed else { 
+            if debugLoggingEnabled {
+                print("[Viz] Cannot update target cube - visualization disabled or gripper closed")
+            }
+            return 
         }
         
-        // Find the closest expected movement in the trajectory
-        let actualMagnitude = length(actualMovement)
-        var minDeviation: Float = Float.greatestFiniteMagnitude
-        
-        for expectedMovement in expectedTrajectory {
-            let expectedMagnitude = length(expectedMovement)
-            let magnitudeDeviation = abs(actualMagnitude - expectedMagnitude)
-            
-            // Calculate directional deviation (angle between vectors)
-            let angleDeviation: Float
-            if actualMagnitude > 0.001 && expectedMagnitude > 0.001 {
-                let dotProduct = dot(normalize(actualMovement), normalize(expectedMovement))
-                let clampedDot = max(-1.0, min(1.0, dotProduct))  // Clamp for acos
-                angleDeviation = acos(clampedDot) * 180.0 / Float.pi  // Convert to degrees
-            } else {
-                angleDeviation = 0.0
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, let worldOriginAnchor = self.worldOriginAnchor else { 
+                if self?.debugLoggingEnabled == true {
+                    print("[Viz] Cannot update target cube - anchor not ready")
+                }
+                return 
             }
             
-            // Combined deviation (magnitude + direction)
-            let combinedDeviation = magnitudeDeviation + (angleDeviation / 180.0) * 0.1  // Scale angle deviation
-            minDeviation = min(minDeviation, combinedDeviation)
-        }
-        
-        // Convert deviation to confidence (low deviation = high confidence = green)
-        // Deviation below threshold = green (confidence > 0.5)
-        // Deviation above threshold = red (confidence < 0.5)
-        let normalizedDeviation = minDeviation / trajectoryDeviationThreshold
-        let confidence = max(0.0, min(1.0, 1.0 - normalizedDeviation))
-        
-        return confidence
-    }
-    
-    // MARK: - Arrow Color Update Helpers
-    private func extractMovementFromArrow(_ arrow: DirectionalArrow) -> SIMD3<Float> {
-        // Use the stored movement vector for accurate color updates
-        return arrow.movementVector
-    }
-    
-    private func updateArrowColor(arrow: DirectionalArrow, confidence: Float) {
-        DispatchQueue.main.async {
-            // Get the arrow color based on confidence
-            let newColor = self.confidenceToColor(confidence, enhanced: self.enhancedVisibilityMode)
-            
-            // Update the arrow entity's material color
-            if let arrowEntity = arrow.entity as? ModelEntity {
-                let newMaterial = SimpleMaterial(color: newColor, isMetallic: false)
-                arrowEntity.model?.materials = [newMaterial]
-            } else {
-                // If it's a container entity, update child entities
-                for child in arrow.entity.children {
-                    if let childEntity = child as? ModelEntity {
-                        let newMaterial = SimpleMaterial(color: newColor, isMetallic: false)
-                        childEntity.model?.materials = [newMaterial]
-                    }
+            // Create or update target cube
+            if self.targetCubeEntity == nil {
+                let cubeMesh = MeshResource.generateBox(size: self.cubeSize)
+                let greenMaterial = SimpleMaterial(color: UIColor.systemGreen.withAlphaComponent(0.9), isMetallic: false)
+                self.targetCubeEntity = ModelEntity(mesh: cubeMesh, materials: [greenMaterial])
+                worldOriginAnchor.addChild(self.targetCubeEntity!)
+                
+                if self.debugLoggingEnabled {
+                    print("[Viz] Target cube created (green, \(self.cubeSize)m)")
                 }
             }
-        }
-    }
-    
-    private func createMovementArrow(from: SIMD3<Float>, to: SIMD3<Float>, confidence: Float, timestamp: TimeInterval) {
-        guard let worldOriginAnchor = worldOriginAnchor else { return }
-        
-        DispatchQueue.main.async { [weak self, worldOriginAnchor] in
-            guard let self = self else { return }
             
-            // Calculate movement vector
-            let movement = to - from
-            let movementMagnitude = length(movement)
+            // Update position
+            self.targetCubeEntity?.position = position
+            self.targetCubeDisplayPosition = position
             
-            // Skip tiny movements (lowered threshold for better visibility)
-            guard movementMagnitude > 0.0005 else { return }
-            
-            // Create arrow entity showing movement from previous to current position
-            let arrowEntity = self.createMovementArrowEntity(
-                fromPosition: from,
-                toPosition: to,
-                movement: movement,
-                confidence: confidence
-            )
-            
-            // Position arrow at the start position (in world origin's coordinate system)
-            arrowEntity.position = from
-            worldOriginAnchor.addChild(arrowEntity)
-            
-            // Store arrow with metadata
-            let movementArrow = DirectionalArrow(
-                entity: arrowEntity,
-                anchor: worldOriginAnchor,
-                timestamp: timestamp,
-                magnitude: movementMagnitude,
-                movementVector: movement
-            )
-            
-            // Remove existing arrow immediately (we only want one arrow at a time)
-            if let existingArrow = self.movementArrows.first {
-                existingArrow.entity.removeFromParent()
-            }
-            
-            // Replace with new arrow
-            self.movementArrows = [movementArrow]
-            
-            // Movement arrow created
-        }
-    }
-    
-    private func createMovementArrowEntity(fromPosition: SIMD3<Float>, toPosition: SIMD3<Float>, movement: SIMD3<Float>, confidence: Float) -> Entity {
-        let arrowContainer = Entity()
-        
-        // Calculate arrow dimensions based on movement magnitude
-        let movementMagnitude = length(movement)
-        let minLength: Float = enhancedVisibilityMode ? 0.08 : 0.05  // Larger minimum in enhanced mode
-        let scaledLength = max(movementMagnitude, minLength)
-        let shaftLength = scaledLength * (1.0 - arrowHeadRatio)
-        let headLength = scaledLength * arrowHeadRatio
-        
-        // Create arrow shaft (cylinder) 
-        let shaftMesh = MeshResource.generateBox(
-            width: arrowThickness,
-            height: arrowThickness,
-            depth: shaftLength
-        )
-        
-        // Color based on confidence: red (low) -> yellow (medium) -> green (high)
-        // Enhanced visibility mode makes colors more vibrant
-        let shaftColor = confidenceToColor(confidence, enhanced: enhancedVisibilityMode)
-        let shaftEntity = ModelEntity(
-            mesh: shaftMesh,
-            materials: [SimpleMaterial(color: shaftColor, isMetallic: false)]
-        )
-        
-        // Create arrow head (pointing toward destination)
-        let headMesh = MeshResource.generateBox(
-            width: arrowHeadWidth,
-            height: arrowHeadWidth,
-            depth: headLength
-        )
-        
-        let headEntity = ModelEntity(
-            mesh: headMesh,
-            materials: [SimpleMaterial(color: shaftColor.withAlphaComponent(0.9), isMetallic: false)]
-        )
-        
-        // Position shaft and head along the movement vector
-        shaftEntity.position = SIMD3<Float>(0, 0, shaftLength / 2)
-        headEntity.position = SIMD3<Float>(0, 0, shaftLength + headLength / 2)
-        
-        // Orient arrow in direction of movement
-        if movementMagnitude > 0.001 {
-            let normalizedMovement = normalize(movement)
-            let forward = SIMD3<Float>(0, 0, 1)
-            let rotationQuat = simd_quatf(from: forward, to: normalizedMovement)
-            
-            arrowContainer.orientation = rotationQuat
-        }
-        
-        arrowContainer.addChild(shaftEntity)
-        arrowContainer.addChild(headEntity)
-        
-        return arrowContainer
-    }
-    
-    private func confidenceToColor(_ confidence: Float, enhanced: Bool = false) -> UIColor {
-        let clampedConfidence = max(0.0, min(1.0, confidence))
-        let alpha: CGFloat = enhanced ? 1.0 : 0.9
-        
-        if clampedConfidence < 0.5 {
-            let factor = clampedConfidence * 2.0
-            return UIColor(red: 1.0, green: CGFloat(factor), blue: 0.0, alpha: alpha)
-        } else {
-            let factor = (clampedConfidence - 0.5) * 2.0
-            return UIColor(red: CGFloat(1.0 - factor), green: 1.0, blue: 0.0, alpha: alpha)
-        }
-    }
-    
-    private func cleanupOldArrows(currentTime: TimeInterval) {
-        let expiredArrows = movementArrows.filter { currentTime - $0.timestamp > arrowLifetime }
-        
-        for expiredArrow in expiredArrows {
-            expiredArrow.entity.removeFromParent()
-            if let index = movementArrows.firstIndex(where: { $0.timestamp == expiredArrow.timestamp }) {
-                movementArrows.remove(at: index)
+            if self.debugLoggingEnabled {
+                func fmt(_ f: Float) -> String { String(format: "%.3f", f) }
+                print("[Viz] Target cube updated: (\(fmt(position.x)), \(fmt(position.y)), \(fmt(position.z)))")
             }
         }
-        
-        // Clean up expired arrows
     }
+    
     
     private func eulerToQuaternion(roll: Float, pitch: Float, yaw: Float) -> simd_quatf {
         let phi_2 = roll / 2.0    
@@ -719,10 +520,11 @@ class ARVisualizationManager: ObservableObject {
     
     // MARK: - Goal Point Visualization
     private func updateGoalPointVisualization() {
-        guard let targetPose = targetPose,
+        guard !isGripperClosed,
+              let targetPose = targetPose,
               let worldOriginAnchor = worldOriginAnchor,
               hasEstablishedOrigin else { 
-            print(" Cannot create goal visualization - targetPose: \(targetPose?.debugDescription ?? "nil"), anchor: \(worldOriginAnchor != nil), origin: \(hasEstablishedOrigin)")
+            print(" Cannot create goal visualization - targetPose: \(targetPose?.debugDescription ?? "nil"), anchor: \(worldOriginAnchor != nil), origin: \(hasEstablishedOrigin), gripperClosed: \(isGripperClosed)")
             goalPointEntity?.removeFromParent()
             goalPointEntity = nil
             return 
@@ -737,15 +539,18 @@ class ARVisualizationManager: ObservableObject {
         let goalMaterial = SimpleMaterial(color: .systemRed, isMetallic: false) 
         goalPointEntity = ModelEntity(mesh: sphereMesh, materials: [goalMaterial])
         
-        // Position the sphere at the target pose (relative to world origin)
+        // Position the sphere at the target pose (relative to world origin) with -10cm offset (Z direction only)
         let relativePosition = targetPose - worldOrigin
-        goalPointEntity?.position = relativePosition
+        let goalDisplayPosition = relativePosition + SIMD3<Float>(0, 0, goalForwardOffset)
+        
+        goalPointEntity?.position = goalDisplayPosition
         worldOriginAnchor.addChild(goalPointEntity!)
         
         print("Goal point visualization created:")
         print("   Target pose (world): \(targetPose)")
         print("   World origin: \(worldOrigin)")
         print("   Relative position: \(relativePosition)")
+        print("   Display position (with offset): \(goalDisplayPosition)")
         print("   Distance from origin: \(length(relativePosition))m")
     }
 
