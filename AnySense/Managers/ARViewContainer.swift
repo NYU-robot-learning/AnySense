@@ -46,7 +46,10 @@ struct ARViewContainer: UIViewRepresentable {
         // Initialize the ARView
         let arView = ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
         arView.session = session
-        arView.environment.sceneUnderstanding.options = [] // No extra scene understanding
+        // Expose real-world mesh as RealityKit entities and give them collision for raycasts
+        arView.environment.sceneUnderstanding.options = [.collision]
+        // COMMENT THIS OUT FOR PRODUCTION - shows mesh
+        // arView.debugOptions.insert(.showSceneUnderstanding)
         
         // Setup AR visualization with the created ARView
         arVisualizationManager.setupVisualization(with: arView)
@@ -70,74 +73,71 @@ struct ARViewContainer: UIViewRepresentable {
         let parent: ARViewContainer
         init(_ parent: ARViewContainer) { self.parent = parent }
         
+        /// Raycast against Scene Understanding (LiDAR mesh) entities.
+        /// Returns the world-space point if the hit entity originates from real-world mesh data.
+        private func meshBackedHit(in arView: ARView, from location: CGPoint) -> SIMD3<Float>? {
+            guard let ray = arView.ray(through: location) else { return nil }
+
+            // Raycast the RealityKit scene — includes scene-understanding entities created from LiDAR mesh
+            let hits = arView.scene.raycast(origin: ray.origin, direction: ray.direction)
+
+            if let hit = hits.first(where: { $0.entity is HasSceneUnderstanding }) {
+                return hit.position
+            }
+            return nil
+        }
+
         @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
             guard recognizer.state == .ended, let arView = recognizer.view as? ARView else { return }
             let location = recognizer.location(in: arView)
-
-            // Try depth-based unprojection first (for LiDAR devices)
-            if let (worldPoint, method) = parent.worldPointFromDepth(at: location, in: arView) {
-                print("📍 Tap at screen location: \(location)")
-                print("   Using \(method) method for 3D point: \(worldPoint)")
-                
-                // Show distance from camera
-                if let currentFrame = arView.session.currentFrame {
-                    let camPos = simd_float3(
-                        currentFrame.camera.transform.columns.3.x,
-                        currentFrame.camera.transform.columns.3.y,
-                        currentFrame.camera.transform.columns.3.z
-                    )
-                    let distanceFromCam = length(worldPoint - camPos)
-                    print("   Distance from camera: \(distanceFromCam)m")
-                }
-
-                // Create anchor at the world point
+ 
+            // 1) (arView.scene.raycast) Try LiDAR-backed mesh raycast first
+            if let world = meshBackedHit(in: arView, from: location) {
                 var t = matrix_identity_float4x4
-                t.columns.3 = SIMD4<Float>(worldPoint.x, worldPoint.y, worldPoint.z, 1)
+                t.columns.3 = SIMD4<Float>(world.x, world.y, world.z, 1)
+ 
                 let goalAnchor = ARAnchor(name: "goal", transform: t)
                 arView.session.add(anchor: goalAnchor)
-
-                // Notify ML pipeline with the world point
+ 
+                print("Using LiDAR mesh raycast for 3D point: \(world)")
+ 
                 NotificationCenter.default.post(
                     name: NSNotification.Name("ARViewTapForGoal"),
                     object: nil,
                     userInfo: [
-                        "worldPoint": worldPoint,
-                        "method": method,
+                        "worldPoint": world,
+                        "method": "meshRaycast",
                         "location": location,
                         "bounds": arView.bounds
                     ]
                 )
                 return
             }
-
-            // Only fallback to raycast on non-Pro devices (no LiDAR)
-            // On Pro devices with LiDAR, if depth fails, user can just tap again
-            if !parent.depthStatus.isDepthAvailable {
-                if let hit = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any).first {
-                    let t = hit.worldTransform
-                    let world = simd_float3(t.columns.3.x, t.columns.3.y, t.columns.3.z)
-
-                    // Create a native ARKit anchor at the hit (world-locked)
-                    let goalAnchor = ARAnchor(name: "goal", transform: t)
-                    arView.session.add(anchor: goalAnchor)
-
-                    print("Using raycast fallback for 3D point: \(world)")
-
-                    // Notify ML pipeline with the world point
-                    NotificationCenter.default.post(
-                        name: NSNotification.Name("ARViewTapForGoal"),
-                        object: nil,
-                        userInfo: [
-                            "worldPoint": world,
-                            "method": "raycast",
-                            "location": location,
-                            "bounds": arView.bounds
-                        ]
-                    )
-                    return
-                }
+ 
+            // 2) (arView.raycast) Fallback: ARKit plane/estimated-surface raycast
+            if let hit = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any).first {
+                let t = hit.worldTransform
+                let world = simd_float3(t.columns.3.x, t.columns.3.y, t.columns.3.z)
+ 
+                let goalAnchor = ARAnchor(name: "goal", transform: t)
+                arView.session.add(anchor: goalAnchor)
+ 
+                print("Using plane/estimated raycast fallback for 3D point: \(world)")
+ 
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("ARViewTapForGoal"),
+                    object: nil,
+                    userInfo: [
+                        "worldPoint": world,
+                        "method": "raycast",
+                        "location": location,
+                        "bounds": arView.bounds
+                    ]
+                )
+                return
             }
-            // Fallback: still notify with screen info (no hit yet)
+ 
+            // 3) (no raycast) Final fallback: still notify with screen info (no hit yet)
             NotificationCenter.default.post(
                 name: NSNotification.Name("ARViewTapForGoal"),
                 object: nil,
@@ -147,78 +147,6 @@ struct ARViewContainer: UIViewRepresentable {
                 ]
             )
         }
-    }
-
-    // MARK: - Depth-Based Point Calculation
-    private func worldPointFromDepth(at location: CGPoint, in arView: ARView) -> (point: simd_float3, method: String)? {
-        guard let frame = arView.session.currentFrame,
-              let depth = frame.sceneDepth?.depthMap else {
-            return nil
-        }
-
-        let depthWidth = CVPixelBufferGetWidth(depth)
-        let depthHeight = CVPixelBufferGetHeight(depth)
-        let viewBounds = arView.bounds
-
-        // 1. Normalize tap location to view coordinates
-        let normView = CGPoint(
-            x: location.x / viewBounds.width,
-            y: location.y / viewBounds.height
-        )
-
-        // 2. Apply display transform to get camera image coordinates
-        let ori = arView.window?.windowScene?.interfaceOrientation ?? .portrait
-        let disp = frame.displayTransform(for: ori, viewportSize: viewBounds.size)
-        let camNorm = normView.applying(disp.inverted())
-
-        // 3. Map to depth pixel coordinates
-        let u = Int(clamp(camNorm.x, 0, 1) * CGFloat(depthWidth))
-        let v = Int(clamp(camNorm.y, 0, 1) * CGFloat(depthHeight))
-
-        // 4. Sample depth with median filtering for noise reduction
-        CVPixelBufferLockBaseAddress(depth, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(depth, .readOnly) }
-
-        let base = CVPixelBufferGetBaseAddress(depth)!.assumingMemoryBound(to: Float32.self)
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(depth) / MemoryLayout<Float32>.size
-        let N = 3
-        var samples: [Float] = []
-
-        for j in max(0, v - N)...min(depthHeight - 1, v + N) {
-            for i in max(0, u - N)...min(depthWidth - 1, u + N) {
-                let d = base[j * bytesPerRow + i]
-                if d.isFinite, d > 0 {
-                    samples.append(d)
-                }
-            }
-        }
-
-        guard !samples.isEmpty else {
-            print("⚠️ Depth unprojection failed: no valid depth samples")
-            return nil
-        }
-        samples.sort()
-        let depthValue = samples[samples.count / 2] // median
-
-        // 5. Unproject to camera coordinates using intrinsics
-        let K = frame.camera.intrinsics
-        let fx = K.columns.0.x, fy = K.columns.1.y
-        let cx = K.columns.2.x, cy = K.columns.2.y
-
-        let xc = (Float(u) - cx) * depthValue / fx
-        let yc = (Float(v) - cy) * depthValue / fy
-        let zc = depthValue
-
-        // 6. Transform to world coordinates
-        let pc = simd_float4(xc, yc, zc, 1)
-        let pw = simd_mul(frame.camera.transform, pc)
-        
-        return (simd_float3(pw.x, pw.y, pw.z), "depth")
-    }
-
-    // MARK: - Helper Functions
-    private func clamp<T: Comparable>(_ value: T, _ minVal: T, _ maxVal: T) -> T {
-        return min(max(value, minVal), maxVal)
     }
 }
 
@@ -479,7 +407,9 @@ class ARViewModel: ObservableObject{
             depthStatus.setUnavailable()
         }
         configuration.planeDetection = [.horizontal, .vertical]
-        if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
+        if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
+            configuration.sceneReconstruction = .meshWithClassification
+        } else if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
             configuration.sceneReconstruction = .mesh
         }
         configuration.environmentTexturing = .none
