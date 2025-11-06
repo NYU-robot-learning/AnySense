@@ -17,7 +17,21 @@ enum ActionState {
     }
 }
 
-// MARK: - Visualization Frequency (Matching MLInferenceManager)
+// MARK: - Target State
+enum TargetState {
+    case active  // Red target
+    case reached  // Green target
+}
+
+// MARK: - Fading Target
+struct FadingTarget {
+    var entity: ModelEntity
+    var position: SIMD3<Float>
+    var fadeStartTime: CFTimeInterval
+    var state: TargetState
+}
+
+// MARK: - Visualization Frequency
 enum VisualizationFrequency: CaseIterable {
     case high, medium, low, minute
     
@@ -51,47 +65,35 @@ class ARVisualizationManager: ObservableObject {
     // MARK: - Private Properties  
     private var arView: ARView?
     private var worldOriginAnchor: AnchorEntity?
-    private var lastVisualizationTime: CFTimeInterval = 0
-    
-    // Cube visualization entities
-    private var currentPoseCubeEntity: ModelEntity?
-    private var targetCubeEntity: ModelEntity?
-    private var targetCubeDisplayPosition: SIMD3<Float>?  // Where target cube is displayed (with offset)
-    private var actualCameraPosition: SIMD3<Float>?  // Actual camera position for proximity
-    private var targetCameraPosition: SIMD3<Float>?  // Target camera position for proximity (without offset)
-    
-    // Proximity detection
-    private let proximityThreshold: Float = 0.15  // 15cm for "merged" state (increased for better detection)
-    
-    // Target/device pose state for point-conditioned flows
     private var targetPose: SIMD3<Float>?
-    private var actualDevicePose: SIMD3<Float> = SIMD3<Float>(0, 0, 0)
     private var goalPointEntity: ModelEntity?
-    private var goalAnchorEntity: AnchorEntity?
-    
-    // Movement tracking
     private var worldOrigin: SIMD3<Float> = SIMD3<Float>(0, 0, 0)
-    private var currentWorldPosition: SIMD3<Float> = SIMD3<Float>(0, 0, 0)
-    private var previousWorldPosition: SIMD3<Float>?
     private var hasEstablishedOrigin: Bool = false
     
-    // Cube visual configuration
-    private let cubeSize: Float = 0.02  // 2cm cubes
-    private let currentCubeForwardOffset: Float = -0.010  // -1cm offset (out of screen, towards camera)
-    private let targetCubeForwardOffset: Float = 0.00  // No offset for target cube
+    var debugLoggingEnabled: Bool = false
+    var isGripperClosed: Bool = false
+    var useVirtualGripper: Bool = false
+    var applyEndOffset: Bool = true
+    var endOffsetMeters: Float = 0.02
     
-    // Debug controls
-    var debugLoggingEnabled: Bool = true
-    
-    // Gripper state control
-    var isGripperClosed: Bool = false  // When true, stops visualization
-    
-    // Virtual gripper setting
-    var useVirtualGripper: Bool = false  // When true, uses gripper_overlay.png; when false, passes image to policy
+    // MARK: - Wireframe & Target Visualization
+    private var wireframeEntity: Entity?
+    private var wireframeAnchor: AnchorEntity?
+    private let wireframeSize: Float = 0.018
+    private let wireframeOffsetMeters: Float = 0.04
+    private var wireframeVisualPosition: SIMD3<Float>?
+    private var activeTargetEntity: ModelEntity?
+    private var activeTargetPosition: SIMD3<Float>?
+    private var fadingTargets: [FadingTarget] = []
+    private var displayLink: CADisplayLink?
+    private let fadeDuration: CFTimeInterval = 0.1
+    private let targetSize: Float = 0.012
+    private var lastWireframeUpdateTime: CFTimeInterval = 0
+    private let wireframeUpdateInterval: CFTimeInterval = 0.033
     
     // MARK: - Initialization 
     init() {
-        log("Initialized with cube-based visualization")
+        log("Initialized with wireframe seek-target visualization")
     }
     
     // MARK: - Logging Helper
@@ -102,7 +104,44 @@ class ARVisualizationManager: ObservableObject {
     // MARK: - Setup Methods
     func setupVisualization(with arView: ARView) {
         self.arView = arView
-        log("Setup completed - using camera-relative directional arrows")
+        setupFadeAnimation()
+        log("Setup completed - using wireframe seek-target visualization")
+    }
+    
+    // MARK: - Fade Animation Setup
+    private func setupFadeAnimation() {
+        displayLink = CADisplayLink(target: self, selector: #selector(updateFadingTargets))
+        displayLink?.preferredFrameRateRange = CAFrameRateRange(minimum: 20, maximum: 30, preferred: 30)
+        displayLink?.add(to: .main, forMode: .common)
+    }
+    
+    @objc private func updateFadingTargets() {
+        guard !fadingTargets.isEmpty else { return }
+        
+        let currentTime = CACurrentMediaTime()
+        var targetsToRemove: [Int] = []
+        
+        for (index, fadingTarget) in fadingTargets.enumerated() {
+            let elapsed = currentTime - fadingTarget.fadeStartTime
+            let alpha = Float(max(0.0, 1.0 - elapsed / fadeDuration))
+            
+            if alpha <= 0.05 {
+                fadingTarget.entity.removeFromParent()
+                targetsToRemove.append(index)
+                continue
+            }
+            
+            let greenMaterial = SimpleMaterial(
+                color: UIColor.systemGreen.withAlphaComponent(CGFloat(alpha)),
+                isMetallic: false
+            )
+            fadingTarget.entity.model?.materials = [greenMaterial]
+        }
+        
+        // Remove completed fades (reverse order to maintain indices)
+        for index in targetsToRemove.reversed() {
+            fadingTargets.remove(at: index)
+        }
     }
     
     // MARK: - Recording Control Methods
@@ -150,37 +189,25 @@ class ARVisualizationManager: ObservableObject {
     
     private func establishWorldOrigin() {
         guard let currentArView = arView else { return }
-        guard !hasEstablishedOrigin else {
-            print("World origin already established")
-            return
-        }
+        guard !hasEstablishedOrigin else { return }
         
-        // Set world origin at current camera position
         worldOrigin = getCurrentCameraPosition()
-        currentWorldPosition = SIMD3<Float>(0, 0, 0) // Start at origin
-        previousWorldPosition = nil
         hasEstablishedOrigin = true
 
-        // Create an anchor at the chosen world origin to host visualization entities
         var t = matrix_identity_float4x4
         t.columns.3 = SIMD4<Float>(worldOrigin.x, worldOrigin.y, worldOrigin.z, 1)
         let anchor = AnchorEntity(world: t)
         currentArView.scene.addAnchor(anchor)
         worldOriginAnchor = anchor
         
-        print("World origin set at: \(worldOrigin) and anchor created")
+        print("World origin set at: \(worldOrigin)")
     }
     
     private func resetMovementTracking() {
         hasEstablishedOrigin = false
         worldOrigin = SIMD3<Float>(0, 0, 0)
-        currentWorldPosition = SIMD3<Float>(0, 0, 0)
-        previousWorldPosition = nil
-        
-        // Remove goal point visualization
         goalPointEntity?.removeFromParent()
         goalPointEntity = nil
-        
         worldOriginAnchor?.removeFromParent()
         worldOriginAnchor = nil
     }
@@ -198,99 +225,224 @@ class ARVisualizationManager: ObservableObject {
     }
     
     private func clearAllVisualization() {
-        // Remove goal point visualization
-        goalPointEntity?.removeFromParent()
-        goalPointEntity = nil
-        
-        // Remove cube visualizations
-        currentPoseCubeEntity?.removeFromParent()
-        currentPoseCubeEntity = nil
-        
-        targetCubeEntity?.removeFromParent()
-        targetCubeEntity = nil
-        targetCubeDisplayPosition = nil
-        targetCameraPosition = nil
-        actualCameraPosition = nil
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
+            self.wireframeEntity?.removeFromParent()
+            self.wireframeEntity = nil
+            self.wireframeAnchor?.removeFromParent()
+            self.wireframeAnchor = nil
+            self.wireframeVisualPosition = nil
+            self.activeTargetEntity?.removeFromParent()
+            self.activeTargetEntity = nil
+            self.activeTargetPosition = nil
+            
+            for fadingTarget in self.fadingTargets {
+                fadingTarget.entity.removeFromParent()
+            }
+            self.fadingTargets.removeAll()
+        }
     }
 
     // MARK: - Initialization helper
     func ensureVisualizationReady() {
         if !hasEstablishedOrigin { establishWorldOrigin() }
         if !isVisualizationEnabled { enableVisualization() }
-        if debugLoggingEnabled {
-            print("[Viz] ensureVisualizationReady → enabled=\(isVisualizationEnabled), origin=\(hasEstablishedOrigin)")
+        if targetPose != nil && goalPointEntity == nil && worldOriginAnchor != nil {
+            updateGoalPointVisualization()
         }
     }
     
-    // MARK: - Cube Management Methods
-    func updateCurrentPoseCube(position: SIMD3<Float>) {
+    // MARK: - Wireframe Management
+    func updateWireframe(cameraRelativePosition: SIMD3<Float>) {
         guard isVisualizationEnabled, !isGripperClosed else { return }
         
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self, let worldOriginAnchor = self.worldOriginAnchor else { 
-                if self?.debugLoggingEnabled == true {
-                    print("[Viz] Cannot update current cube - anchor not ready")
-                }
-                return 
-            }
-            
-            // Create or update current pose cube
-            if self.currentPoseCubeEntity == nil {
-                let cubeMesh = MeshResource.generateBox(size: self.cubeSize)
-                let blueMaterial = SimpleMaterial(color: UIColor.systemBlue.withAlphaComponent(0.7), isMetallic: false)
-                self.currentPoseCubeEntity = ModelEntity(mesh: cubeMesh, materials: [blueMaterial])
-                worldOriginAnchor.addChild(self.currentPoseCubeEntity!)
-                
-                if self.debugLoggingEnabled {
-                    print("[Viz] Current pose cube created (blue, \(self.cubeSize)m)")
-                }
-            }
-            
-            // Update position
-            self.currentPoseCubeEntity?.position = position
-            
-            // Check proximity if we have a target cube
-            self.checkProximityAndUpdateState()
+        let currentTime = CACurrentMediaTime()
+        guard currentTime - lastWireframeUpdateTime >= wireframeUpdateInterval else {
+            wireframeVisualPosition = cameraRelativePosition
+            checkProximityAndUpdateState()
+            return
         }
+        lastWireframeUpdateTime = currentTime
+        
+        wireframeVisualPosition = cameraRelativePosition
+        
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, let arView = self.arView else { return }
+            
+            if self.wireframeAnchor == nil {
+                self.wireframeAnchor = AnchorEntity(.camera)
+                arView.scene.addAnchor(self.wireframeAnchor!)
+            }
+            
+            if self.wireframeEntity == nil {
+                self.wireframeEntity = self.createWireframeBox()
+                self.wireframeAnchor!.addChild(self.wireframeEntity!)
+            }
+            
+            self.wireframeEntity?.position = SIMD3<Float>(0, 0, -self.wireframeOffsetMeters)
+        }
+        
+        checkProximityAndUpdateState()
     }
+    
+    // MARK: - Wireframe Creation
+    private func createWireframeBox() -> Entity {
+        let wireframeGroup = Entity()
+        let edgeThickness: Float = 0.001
+        let half = wireframeSize / 2.0
+        
+        createWireframeEdge(from: SIMD3<Float>(-half, -half, -half),
+                           to: SIMD3<Float>(half, -half, -half),
+                           thickness: edgeThickness,
+                           parent: wireframeGroup)
+        createWireframeEdge(from: SIMD3<Float>(half, -half, -half),
+                           to: SIMD3<Float>(half, half, -half),
+                           thickness: edgeThickness,
+                           parent: wireframeGroup)
+        createWireframeEdge(from: SIMD3<Float>(half, half, -half),
+                           to: SIMD3<Float>(-half, half, -half),
+                           thickness: edgeThickness,
+                           parent: wireframeGroup)
+        createWireframeEdge(from: SIMD3<Float>(-half, half, -half),
+                           to: SIMD3<Float>(-half, -half, -half),
+                           thickness: edgeThickness,
+                           parent: wireframeGroup)
+        createWireframeEdge(from: SIMD3<Float>(-half, -half, half),
+                           to: SIMD3<Float>(half, -half, half),
+                           thickness: edgeThickness,
+                           parent: wireframeGroup)
+        createWireframeEdge(from: SIMD3<Float>(half, -half, half),
+                           to: SIMD3<Float>(half, half, half),
+                           thickness: edgeThickness,
+                           parent: wireframeGroup)
+        createWireframeEdge(from: SIMD3<Float>(half, half, half),
+                           to: SIMD3<Float>(-half, half, half),
+                           thickness: edgeThickness,
+                           parent: wireframeGroup)
+        createWireframeEdge(from: SIMD3<Float>(-half, half, half),
+                           to: SIMD3<Float>(-half, -half, half),
+                           thickness: edgeThickness,
+                           parent: wireframeGroup)
+        createWireframeEdge(from: SIMD3<Float>(-half, -half, -half),
+                           to: SIMD3<Float>(-half, -half, half),
+                           thickness: edgeThickness,
+                           parent: wireframeGroup)
+        createWireframeEdge(from: SIMD3<Float>(half, -half, -half),
+                           to: SIMD3<Float>(half, -half, half),
+                           thickness: edgeThickness,
+                           parent: wireframeGroup)
+        createWireframeEdge(from: SIMD3<Float>(-half, half, -half),
+                           to: SIMD3<Float>(-half, half, half),
+                           thickness: edgeThickness,
+                           parent: wireframeGroup)
+        createWireframeEdge(from: SIMD3<Float>(half, half, -half),
+                           to: SIMD3<Float>(half, half, half),
+                           thickness: edgeThickness,
+                           parent: wireframeGroup)
+        
+        return wireframeGroup
+    }
+    
+    private func createWireframeEdge(from: SIMD3<Float>, to: SIMD3<Float>, thickness: Float, parent: Entity) {
+        let direction = to - from
+        let edgeLength = length(direction)
+        guard edgeLength > 1e-6 else { return }
+        
+        let center = (from + to) / 2.0
+        let targetDir = direction / edgeLength
+        let edgeMesh = MeshResource.generateBox(width: thickness, height: thickness, depth: edgeLength)
+        let blueMaterial = SimpleMaterial(color: UIColor.systemBlue.withAlphaComponent(0.9), isMetallic: false)
+        let edgeEntity = ModelEntity(mesh: edgeMesh, materials: [blueMaterial])
+        edgeEntity.position = center
+        
+        let defaultDir = SIMD3<Float>(0, 0, 1)
+        let dotProduct = dot(defaultDir, targetDir)
+        
+        if abs(dotProduct) > 0.999 {
+            if dotProduct < 0 {
+                edgeEntity.orientation = simd_quatf(angle: .pi, axis: SIMD3<Float>(0, 1, 0))
+            }
+        } else {
+            let axis = cross(defaultDir, targetDir)
+            let axisLength = length(axis)
+            if axisLength > 1e-6 {
+                let angle = acos(max(-1.0, min(1.0, dotProduct)))
+                edgeEntity.orientation = simd_quatf(angle: angle, axis: axis / axisLength)
+            }
+        }
+        
+        parent.addChild(edgeEntity)
+    }
+    
     
     private var lastLoggedDistance: Float = -1.0
     
     private func checkProximityAndUpdateState() {
         guard !isGripperClosed,
-              let cameraPos = actualCameraPosition,
-              let targetPos = targetCameraPosition else { return }
+              let wireframePos = wireframeVisualPosition,
+              let targetPos = activeTargetPosition else { return }
         
-        let distance = length(cameraPos - targetPos)
+        let targetHalf = targetSize / 2.0
+        let wireframeHalf = wireframeSize / 2.0
         
-        // Log only when close to threshold or when distance changes significantly
-        let distanceChanged = abs(distance - lastLoggedDistance) > 0.02 // 2cm change
-        let isClose = distance < proximityThreshold * 1.5  // Within 1.5x threshold
-        if debugLoggingEnabled && (distanceChanged || isClose) {
-            print("[Proximity] 📏 Distance: \(String(format: "%.4f", distance))m | Threshold: \(proximityThreshold)m | \(distance <= proximityThreshold ? "✅ WITHIN" : "⏳ Far")")
-            lastLoggedDistance = distance
+        let targetMin = targetPos - SIMD3<Float>(targetHalf, targetHalf, targetHalf)
+        let targetMax = targetPos + SIMD3<Float>(targetHalf, targetHalf, targetHalf)
+        let wireframeMin = wireframePos - SIMD3<Float>(wireframeHalf, wireframeHalf, wireframeHalf)
+        let wireframeMax = wireframePos + SIMD3<Float>(wireframeHalf, wireframeHalf, wireframeHalf)
+        
+        let tolerance: Float = 0.001
+        let isEnveloped = (targetMin.x >= wireframeMin.x - tolerance && targetMax.x <= wireframeMax.x + tolerance &&
+                          targetMin.y >= wireframeMin.y - tolerance && targetMax.y <= wireframeMax.y + tolerance &&
+                          targetMin.z >= wireframeMin.z - tolerance && targetMax.z <= wireframeMax.z + tolerance)
+        
+        if debugLoggingEnabled {
+            let distance = length(targetPos - wireframePos)
+            let distanceChanged = abs(distance - lastLoggedDistance) > 0.01
+            if distanceChanged || isEnveloped {
+                print("[Proximity] Distance: \(String(format: "%.3f", distance))m | Enveloped: \(isEnveloped)")
+                lastLoggedDistance = distance
+            }
         }
         
-        if distance <= proximityThreshold {
-            // Camera reached target - signal inference trigger
+        if isEnveloped {
             if actionState != .reached {
                 actionState = .reached
-                log("✅ Target reached - triggering inference (distance: \(String(format: "%.4f", distance))m)")
-                
-                // Notify observers that proximity was reached
-                NotificationCenter.default.post(
-                    name: NSNotification.Name("ProximityReached"),
-                    object: nil
-                )
+                transitionTargetToFading()
+                NotificationCenter.default.post(name: NSNotification.Name("ProximityReached"), object: nil)
             }
         } else {
             if actionState != .waiting {
                 actionState = .waiting
-                if debugLoggingEnabled {
-                    log("⏳ State changed to waiting (distance: \(String(format: "%.4f", distance))m)")
-                }
             }
         }
+    }
+    
+    // MARK: - Target Transition
+    private func transitionTargetToFading() {
+        guard let activeEntity = activeTargetEntity,
+              let activePos = activeTargetPosition else { return }
+        
+        let greenMaterial = SimpleMaterial(color: UIColor.systemGreen.withAlphaComponent(1.0), isMetallic: false)
+        activeEntity.model?.materials = [greenMaterial]
+        
+        let fadingTarget = FadingTarget(
+            entity: activeEntity,
+            position: activePos,
+            fadeStartTime: CACurrentMediaTime(),
+            state: .reached
+        )
+        fadingTargets.append(fadingTarget)
+        activeTargetEntity = nil
+        activeTargetPosition = nil
+    }
+    
+    // MARK: - Manual Trigger Support
+    func forceTargetTransition() {
+        activeTargetEntity?.removeFromParent()
+        activeTargetEntity = nil
+        activeTargetPosition = nil
+        actionState = .waiting
     }
     
     // MARK: - Frequency Control Methods
@@ -315,13 +467,25 @@ class ARVisualizationManager: ObservableObject {
             print("Gripper closed - hiding all visualization")
             
             DispatchQueue.main.async { [weak self] in
-                // Remove cubes
-                self?.currentPoseCubeEntity?.removeFromParent()
-                self?.targetCubeEntity?.removeFromParent()
-                self?.goalPointEntity?.removeFromParent()
+                guard let self = self else { return }
+                
+                // Remove wireframe
+                self.wireframeEntity?.removeFromParent()
+                self.wireframeEntity = nil
+                
+                // Remove active target
+                self.activeTargetEntity?.removeFromParent()
+                self.activeTargetEntity = nil
+                self.activeTargetPosition = nil
+                
+                // Remove fading targets
+                for fadingTarget in self.fadingTargets {
+                    fadingTarget.entity.removeFromParent()
+                }
+                self.fadingTargets.removeAll()
                 
                 // Set action state to waiting
-                self?.actionState = .waiting
+                self.actionState = .waiting
             }
         } else if !isClosed && previousState {
             print("Gripper opened - visualization enabled")
@@ -363,36 +527,16 @@ class ARVisualizationManager: ObservableObject {
     
     // MARK: - Device Pose Integration
     func updateActualDevicePose(from arFrame: ARFrame) {
-        let t = arFrame.camera.transform
-        actualDevicePose = SIMD3<Float>(t.columns.3.x, t.columns.3.y, t.columns.3.z)
-        
-        // Update current pose cube position every frame to track camera
         if isVisualizationEnabled && hasEstablishedOrigin {
-            let currentCameraPosition = SIMD3<Float>(
-                t.columns.3.x,
-                t.columns.3.y,
-                t.columns.3.z
-            ) - worldOrigin
-            
-            // Store actual camera position for proximity checking
-            actualCameraPosition = currentCameraPosition
-            
-            // Position blue cube with -5cm forward offset (Z direction only)
-            let cubePosition = currentCameraPosition + SIMD3<Float>(0, 0, currentCubeForwardOffset)
-            
-            updateCurrentPoseCube(position: cubePosition)
+            let t = arFrame.camera.transform
+            let currentCameraPosition = SIMD3<Float>(t.columns.3.x, t.columns.3.y, t.columns.3.z) - worldOrigin
+            let cameraWorldPosition = currentCameraPosition + SIMD3<Float>(0, 0, -wireframeOffsetMeters)
+            updateWireframe(cameraRelativePosition: cameraWorldPosition)
         }
     }
     
     func setTargetPose(_ worldPoint: SIMD3<Float>) {
-        print("🎯 setTargetPose called with world point: \(worldPoint)")
-        print("   hasEstablishedOrigin: \(hasEstablishedOrigin)")
-        print("   worldOrigin: \(worldOrigin)")
-        print("   isGripperClosed: \(isGripperClosed)")
-        print("   isVisualizationEnabled: \(isVisualizationEnabled)")
-        
         targetPose = worldPoint
-        // Ensure visualization is ready before creating goal point
         ensureVisualizationReady()
         updateGoalPointVisualization()
     }
@@ -405,23 +549,9 @@ class ARVisualizationManager: ObservableObject {
     
     // MARK: - ML Integration Method
     func updatePoseFromMLOutput(_ jointActions: [Float], timestamp: CFTimeInterval = CACurrentMediaTime()) {
-        guard isVisualizationEnabled else { return }
-        guard hasEstablishedOrigin else {
-            print("World origin not established - cannot track movement")
-            return
-        }
-        guard !isGripperClosed else {
-            if debugLoggingEnabled {
-                print("[Viz] Visualization stopped - gripper is closed")
-            }
-            return
-        }
-        guard jointActions.count >= 6 else {
-            print("Invalid joint actions array - need at least 6 values, got \(jointActions.count)")
-            return
-        }
+        guard isVisualizationEnabled && hasEstablishedOrigin && !isGripperClosed else { return }
+        guard jointActions.count >= 6 else { return }
         
-        // Interpret joint actions as movement deltas in CAMERA coordinates, then rotate into world frame
         let (cameraDeltaTranslation, _) = interpretMLDirections(jointActions, timestamp: timestamp)
         let cameraTransform = getCurrentCameraTransform()
         let rotationWorldFromCamera = simd_float3x3(
@@ -432,83 +562,47 @@ class ARVisualizationManager: ObservableObject {
             )
         )
         let deltaTranslation = rotationWorldFromCamera * cameraDeltaTranslation
-        
-        if debugLoggingEnabled {
-            func fmt(_ f: Float) -> String { String(format: "%.3f", f) }
-            func fmt3(_ v: SIMD3<Float>) -> String { "(\(fmt(v.x)), \(fmt(v.y)), \(fmt(v.z)))" }
-            print("[Viz] Δcam \(fmt3(cameraDeltaTranslation)) → Δworld \(fmt3(deltaTranslation))")
-        }
-        
-        // Get current camera position relative to world origin
-        let currentCameraPosition = SIMD3<Float>(
-            cameraTransform.columns.3.x,
-            cameraTransform.columns.3.y,
-            cameraTransform.columns.3.z
-        ) - worldOrigin
-
-        // Calculate target position from actual camera position + action delta
-        let targetCamPos = currentCameraPosition + deltaTranslation
-        
-        // Store target camera position for proximity checking
-        targetCameraPosition = targetCamPos
-        
-        // Apply -5cm offset to green target cube for display (Z direction only)
-        let targetCubePos = targetCamPos + SIMD3<Float>(0, 0, targetCubeForwardOffset)
-        
-        // Update target cube
-        updateTargetCube(position: targetCubePos)
-        
-        // Update tracking position
-        currentWorldPosition = currentCameraPosition
+        let currentCameraPosition = SIMD3<Float>(cameraTransform.columns.3.x, cameraTransform.columns.3.y, cameraTransform.columns.3.z) - worldOrigin
+        let targetPosition = currentCameraPosition + deltaTranslation
+        updateTarget(position: targetPosition)
     }
     
     private func interpretMLDirections(_ jointActions: [Float], timestamp: CFTimeInterval = CACurrentMediaTime()) -> (translation: SIMD3<Float>, rotation: simd_quatf) {
-        // Map policy action → CAMERA frame (translation and Euler rotation)
         let action7 = Array(jointActions.prefix(7))
         let mapped = ActionTransformUtils.policyToCameraEulerAction(action7, rotationUnit: .eulerXYZ)
-        let translationCamera = SIMD3<Float>(mapped[0], mapped[1], mapped[2])
+        var translationCamera = SIMD3<Float>(mapped[0], mapped[1], mapped[2])
+        
+        if applyEndOffset {
+            translationCamera += SIMD3<Float>(0, 0, -endOffsetMeters)
+        }
+        
         let rotationCamera = eulerToQuaternion(roll: mapped[3], pitch: mapped[4], yaw: mapped[5])
-
-        // Return CAMERA-frame delta; caller will rotate to WORLD frame using current camera pose
         return (translationCamera, rotationCamera)
     }
     
     func updateTargetCube(position: SIMD3<Float>) {
-        guard isVisualizationEnabled, !isGripperClosed else { 
-            if debugLoggingEnabled {
-                print("[Viz] Cannot update target cube - visualization disabled or gripper closed")
-            }
-            return 
-        }
+        updateTarget(position: position)
+    }
+    
+    // MARK: - Target Management
+    func updateTarget(position: SIMD3<Float>) {
+        guard isVisualizationEnabled, !isGripperClosed else { return }
         
         DispatchQueue.main.async { [weak self] in
-            guard let self = self, let worldOriginAnchor = self.worldOriginAnchor else { 
-                if self?.debugLoggingEnabled == true {
-                    print("[Viz] Cannot update target cube - anchor not ready")
-                }
-                return 
+            guard let self = self, let worldOriginAnchor = self.worldOriginAnchor else { return }
+            
+            if self.activeTargetEntity == nil {
+                let targetMesh = MeshResource.generateBox(size: self.targetSize)
+                let redMaterial = SimpleMaterial(color: UIColor.systemRed.withAlphaComponent(1.0), isMetallic: false)
+                let newTarget = ModelEntity(mesh: targetMesh, materials: [redMaterial])
+                worldOriginAnchor.addChild(newTarget)
+                self.activeTargetEntity = newTarget
+                self.actionState = .waiting
+                print("[Viz] ✅ New target created at (\(String(format: "%.3f", position.x)), \(String(format: "%.3f", position.y)), \(String(format: "%.3f", position.z)))")
             }
             
-            // Create or update target cube
-            if self.targetCubeEntity == nil {
-                let cubeMesh = MeshResource.generateBox(size: self.cubeSize)
-                let greenMaterial = SimpleMaterial(color: UIColor.systemGreen.withAlphaComponent(0.9), isMetallic: false)
-                self.targetCubeEntity = ModelEntity(mesh: cubeMesh, materials: [greenMaterial])
-                worldOriginAnchor.addChild(self.targetCubeEntity!)
-                
-                if self.debugLoggingEnabled {
-                    print("[Viz] Target cube created (green, \(self.cubeSize)m)")
-                }
-            }
-            
-            // Update position
-            self.targetCubeEntity?.position = position
-            self.targetCubeDisplayPosition = position
-            
-            if self.debugLoggingEnabled {
-                func fmt(_ f: Float) -> String { String(format: "%.3f", f) }
-                print("[Viz] Target cube updated: (\(fmt(position.x)), \(fmt(position.y)), \(fmt(position.z)))")
-            }
+            self.activeTargetEntity?.position = position
+            self.activeTargetPosition = position
         }
     }
     
@@ -535,51 +629,24 @@ class ARVisualizationManager: ObservableObject {
     
     // MARK: - Goal Point Visualization
     private func updateGoalPointVisualization() {
-        guard !isGripperClosed,
-              let targetPose = targetPose,
+        guard let targetPose = targetPose,
               let worldOriginAnchor = worldOriginAnchor,
               hasEstablishedOrigin else { 
-            print("❌ Cannot create goal visualization:")
-            print("   targetPose exists: \(targetPose != nil)")
-            print("   worldOriginAnchor exists: \(worldOriginAnchor != nil)")
-            print("   hasEstablishedOrigin: \(hasEstablishedOrigin)")
-            print("   isGripperClosed: \(isGripperClosed)")
             goalPointEntity?.removeFromParent()
             goalPointEntity = nil
             return 
         }
         
-        // Remove existing goal point visualization
         goalPointEntity?.removeFromParent()
         goalPointEntity = nil
         
-        // Create a visible sphere 
-        let sphereMesh = MeshResource.generateSphere(radius: 0.02) // 2cm radius for better visibility
+        let sphereMesh = MeshResource.generateSphere(radius: 0.02)
         let goalMaterial = SimpleMaterial(color: .systemRed, isMetallic: false) 
         goalPointEntity = ModelEntity(mesh: sphereMesh, materials: [goalMaterial])
         
-        // Position the sphere at the target pose (relative to world origin)
-        // This matches the working version from commit 41abd7a
         let relativePosition = targetPose - worldOrigin
         goalPointEntity?.position = relativePosition
         worldOriginAnchor.addChild(goalPointEntity!)
-        
-        print("✅ Goal point visualization created:")
-        print("   Target pose (world): \(targetPose)")
-        print("   World origin: \(worldOrigin)")
-        print("   Relative position: \(relativePosition)")
-        print("   Distance from origin: \(length(relativePosition))m")
-        
-        // Check current camera position for reference
-        let currentCamPos = getCurrentCameraPosition()
-        let distanceFromCamera = length(targetPose - currentCamPos)
-        print("   Distance from current camera: \(distanceFromCamera)m")
-    }
-
-    // MARK: - Anchor-based goal visualization
-    func attachGoalAnchor(_ arAnchor: ARAnchor) {
-        if debugLoggingEnabled {
-            print("[Viz] attachGoalAnchor deprecated; use setTargetPose(world)")
-        }
+        print("✅ Goal point created at distance: \(length(relativePosition))m")
     }
 }

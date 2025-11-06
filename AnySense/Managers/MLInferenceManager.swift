@@ -275,44 +275,28 @@ class MLInferenceManager: ObservableObject {
         guard shouldShowGripperOverlay() else {
             return image
         }
-
-        // Fallback to Core Image if vImage buffer not available
-        guard let _ = gripperOverlayBuffer else {
-            return applyGripperOverlayCoreImage(to: image)
-        }
-
-        // For now, use Core Image fallback while we implement vImage compositing
-        // The main performance improvement will come from avoiding the overlay entirely when not needed
-        return applyGripperOverlayCoreImage(to: image)
-    }
-
-    private func applyGripperOverlayCoreImage(to image: CIImage) -> CIImage {
+        
         guard let gripperOverlay = getCurrentGripperOverlay() else {
             return image
         }
+        
+        return applyGripperOverlayCoreImage(to: image, overlay: gripperOverlay)
+    }
 
-        // Scale gripper overlay to match model input size
+    private func applyGripperOverlayCoreImage(to image: CIImage, overlay gripperOverlay: CIImage) -> CIImage {
         let imageSize = image.extent.size
         let overlaySize = gripperOverlay.extent.size
-
         let scaleX = imageSize.width / overlaySize.width
         let scaleY = imageSize.height / overlaySize.height
-        let scale = min(scaleX, scaleY) // Maintain aspect ratio
-
+        let scale = min(scaleX, scaleY)
         let scaledOverlay = gripperOverlay.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-
-        // Position gripper at bottom with no offset (0,0 positioning)
-        let positionedOverlay = scaledOverlay
-
-        // Composite using source-over to preserve alpha transparency
+        
         guard let compositeFilter = CIFilter(name: "CISourceOverCompositing") else {
-            print("Warning: Could not create composite filter")
             return image
         }
-
-        compositeFilter.setValue(positionedOverlay, forKey: kCIInputImageKey)
+        
+        compositeFilter.setValue(scaledOverlay, forKey: kCIInputImageKey)
         compositeFilter.setValue(image, forKey: kCIInputBackgroundImageKey)
-
         return compositeFilter.outputImage ?? image
     }
 
@@ -459,8 +443,8 @@ class MLInferenceManager: ObservableObject {
             // camera: x right, y up, z back
             // labels: x left, y forward, z down
             // Mapping: x = -x_cam, y = -z_cam, z = -y_cam
-            // We add 0.05 to the z coordinate since training data is shifted forward a bit.
-            return [-p_c4.x, -p_c4.z + 0.05, -p_c4.y] 
+            // We add 0.02 to the y coordinate since training data is shifted forward a bit.
+            return [-p_c4.x, -p_c4.z + 0.02, -p_c4.y] 
         }
         // If model expects 2D goals, return nil since we only support 3D goals now
         return nil
@@ -1039,9 +1023,8 @@ class MLInferenceManager: ObservableObject {
         return try convertPixelBufferToMLMultiArray(outputBuffer, width: width, height: height)
     }
     
-    // MARK: - Unified Pixel Buffer to MLMultiArray Conversion
+    // MARK: - Unified Pixel Buffer to MLMultiArray Conversion (Accelerate Optimized)
     private func convertPixelBufferToMLMultiArray(_ pixelBuffer: CVPixelBuffer, width: Int, height: Int) throws -> MLMultiArray {
-        // Always produce [1,3,H,W] for consistent buffering
         let inputArray = try MLMultiArray(shape: [1, 3, NSNumber(value: height), NSNumber(value: width)], dataType: .float32)
         
         guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else {
@@ -1050,18 +1033,21 @@ class MLInferenceManager: ObservableObject {
         
         let buffer = baseAddress.assumingMemoryBound(to: UInt8.self)
         let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
-        let bytesPerPixel = 4
+        let totalPixels = width * height
         
+        let rPtr = inputArray.dataPointer.assumingMemoryBound(to: Float.self)
+        let gPtr = rPtr.advanced(by: totalPixels)
+        let bPtr = gPtr.advanced(by: totalPixels)
+        
+        var pixelIndex = 0
         for y in 0..<height {
+            let rowStart = y * bytesPerRow
             for x in 0..<width {
-                let offset = y * bytesPerRow + x * bytesPerPixel
-                let r = Float(buffer[offset + 1]) / 255.0
-                let g = Float(buffer[offset + 2]) / 255.0
-                let b = Float(buffer[offset + 3]) / 255.0
-                
-                inputArray[[0, 0, NSNumber(value: y), NSNumber(value: x)]] = NSNumber(value: r)
-                inputArray[[0, 1, NSNumber(value: y), NSNumber(value: x)]] = NSNumber(value: g)
-                inputArray[[0, 2, NSNumber(value: y), NSNumber(value: x)]] = NSNumber(value: b)
+                let offset = rowStart + x * 4
+                rPtr[pixelIndex] = Float(buffer[offset + 1]) / 255.0
+                gPtr[pixelIndex] = Float(buffer[offset + 2]) / 255.0
+                bPtr[pixelIndex] = Float(buffer[offset + 3]) / 255.0
+                pixelIndex += 1
             }
         }
         
@@ -1234,6 +1220,84 @@ class MLInferenceManager: ObservableObject {
         isInferencePending = false
         frameBuffer.removeAll()
         print("Inference state reset - ready for new recording")
+    }
+    
+    // MARK: - Manual Inference Trigger
+    func triggerInferenceManually() {
+        guard isInferenceEnabled,
+              let metadata = modelMetadata,
+              frameBuffer.count >= maxBufferSize else {
+            print("[MLInference] Cannot trigger manually - buffer incomplete (\(frameBuffer.count)/\(maxBufferSize)) or inference disabled")
+            return
+        }
+        
+        // Check if goal point is required but not set
+        if metadata.requiresGoalPoint && currentGoalPoint == nil {
+            print("[MLInference] Cannot trigger manually - goal point required but not set")
+            return
+        }
+        
+        // Ensure we have a model loaded
+        guard let model = model else {
+            print("[MLInference] Cannot trigger manually - no model loaded")
+            return
+        }
+        
+        // Skip if inference already pending
+        guard !isInferencePending else {
+            print("[MLInference] Cannot trigger manually - inference already pending")
+            return
+        }
+        
+        // Mark inference as pending
+        isInferencePending = true
+        
+        print("[MLInference] Manual trigger - running inference with buffered frames (\(frameBuffer.count))")
+        
+        // Prepare input using buffered frames
+        let modelInput: MLFeatureProvider
+        do {
+            modelInput = try prepareModelInputFromBuffer(metadata: metadata)
+        } catch {
+            print("ERROR: Failed to prepare model input for manual trigger: \(error)")
+            isInferencePending = false
+            return
+        }
+        
+        inferenceQueue.async { [weak self, modelInput, model] in
+            guard let self = self else { return }
+            
+            let startTime = CACurrentMediaTime()
+            
+            autoreleasepool {
+                do {
+                    print("DEBUG: Running manual model prediction with buffered frames...")
+                    let output = try model.prediction(from: modelInput)
+                    print("DEBUG: Manual model prediction succeeded")
+                    
+                    let inferenceTime = CACurrentMediaTime() - startTime
+                    self.processInferenceResults(output, inferenceTime: inferenceTime)
+                    
+                    // Reset pending flag and mark first inference complete
+                    DispatchQueue.main.async {
+                        self.isInferencePending = false
+                        if !self.hasRunFirstInference {
+                            self.hasRunFirstInference = true
+                            print("[MLInference] First inference complete (manual) - target cube should now be visible")
+                        } else {
+                            // For manual triggers after first inference, transition current target to fading
+                            // This allows the new target to appear immediately
+                            self.arVisualizationManager?.forceTargetTransition()
+                        }
+                    }
+                } catch {
+                    print("ERROR: Manual model inference failed: \(error)")
+                    DispatchQueue.main.async {
+                        self.isInferencePending = false
+                    }
+                }
+            }
+        }
     }
     
     func setInferenceFrequency(_ frequency: InferenceFrequency) {

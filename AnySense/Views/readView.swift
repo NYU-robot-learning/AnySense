@@ -60,6 +60,33 @@ struct ReadView : View{
                             .scaledToFit()
                             .allowsHitTesting(false)
                     }
+                    
+                    // Manual Next Action Button 
+                    if let mlManager = arViewModel.mlManager,
+                       appStatus.mlInferenceEnabled && mlManager.isInferenceEnabled {
+                        VStack {
+                            HStack {
+                                Spacer()
+                                Button(action: {
+                                    mlManager.triggerInferenceManually()
+                                    UIImpactFeedbackGenerator(style: appStatus.hapticFeedbackLevel).impactOccurred()
+                                }) {
+                                    Image(systemName: "arrow.forward.circle.fill")
+                                        .font(.title2)
+                                        .foregroundColor(.white)
+                                        .background(
+                                            Circle()
+                                                .fill(Color.blue.opacity(0.8))
+                                                .frame(width: 44, height: 44)
+                                        )
+                                        .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+                                }
+                                .padding(.trailing, 12)
+                                .padding(.top, 12)
+                            }
+                            Spacer()
+                        }
+                    }
                 }
                 .frame(width: arViewWidth, height: arViewHeight)
                 .padding(.bottom, arViewPadding)
