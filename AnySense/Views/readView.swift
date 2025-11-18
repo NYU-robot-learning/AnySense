@@ -466,10 +466,21 @@ struct ReadView : View{
         let rgbFile = FileElement.videoFile(VideoFile(url:fileSetNames.rgbFileName))
         let depthFile = FileElement.videoFile(VideoFile(url:fileSetNames.depthFileName))
         let poseFile = FileElement.textFile(TextFile(url:fileSetNames.poseFile.path))
-//        let rgbImageFolder = FileElement.directory(SubLevelDirectory(url:fileSetNames.rgbImagesDirectory))
-        let depthImageFolder = FileElement.directory(SubLevelDirectory(url: fileSetNames.depthImagesDirectory))
-        
-        return [rgbFile, depthFile, poseFile, depthImageFolder]
+
+        var elements = [rgbFile, depthFile, poseFile]
+
+        // Only include image folders if they exist (debug mode was enabled)
+        if let depthImagesDir = fileSetNames.depthImagesDirectory {
+            let depthImageFolder = FileElement.directory(SubLevelDirectory(url: depthImagesDir))
+            elements.append(depthImageFolder)
+        }
+
+        if let rgbImagesDir = fileSetNames.rgbImagesDirectory {
+            let rgbImageFolder = FileElement.directory(SubLevelDirectory(url: rgbImagesDir))
+            elements.append(rgbImageFolder)
+        }
+
+        return elements
     }
     
     func deleteRecordedData(url: [URL], targetDirect: String){

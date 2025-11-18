@@ -23,8 +23,8 @@ struct RecordingFiles {
     let rgbFileName: URL
     let depthFileName: URL
     let timestamp: String
-    let rgbImagesDirectory: URL
-    let depthImagesDirectory: URL
+    let rgbImagesDirectory: URL?
+    let depthImagesDirectory: URL?
     let poseFile: URL
     let generalDataDirectory: String
     let tactileFile: URL
@@ -214,8 +214,8 @@ class ARViewModel: ObservableObject{
     private var poseFileHandle: FileHandle?
     
     // Control the destination of rgb images directory and depth images directory
-    private var rgbDirect: URL = URL(fileURLWithPath: "")
-    private var depthDirect: URL = URL(fileURLWithPath: "")
+    private var rgbDirect: URL? = nil
+    private var depthDirect: URL? = nil
     // Control the destination of pose data text file
     private var poseURL: URL = URL(fileURLWithPath: "")
     private var generalURL: URL = URL(fileURLWithPath: "")
@@ -762,31 +762,52 @@ class ARViewModel: ObservableObject{
         dateFormatter.dateFormat = "yyyy-MM-dd-HH_mm_ss"
         let timestamp = dateFormatter.string(from: Date())
         
-        let fileNames = [
+        var fileNames = [
             "RGB": "RGB_\(timestamp).mp4",
             "Depth": "Depth_\(timestamp).mp4",
             "Pose": "AR_Pose_\(timestamp).txt",
-            "Tactile": "Tactile_\(timestamp).bin",
-            "RGBImages": "RGB_Images_\(timestamp)",
-            "DepthImages": isColorMapOpened ? "Depth_Colored_Images_\(timestamp)" : "Depth_Images_\(timestamp)"
+            "Tactile": "Tactile_\(timestamp).bin"
         ]
+
+        // Only include image directories if debug frame saving is enabled
+        if mlManager?.saveDebugFrames == true {
+            fileNames["RGBImages"] = "RGB_Images_\(timestamp)"
+            fileNames["DepthImages"] = isColorMapOpened ? "Depth_Colored_Images_\(timestamp)" : "Depth_Images_\(timestamp)"
+        }
         
         guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
             return nil
         }
         
         let generalDataDirectory = documentsURL.appendingPathComponent(timestamp)
-        let rgbVideoURL = generalDataDirectory.appendingPathComponent(fileNames["RGB"]!)
-        let depthVideoURL = generalDataDirectory.appendingPathComponent(fileNames["Depth"]!)
-        let poseTextURL = generalDataDirectory.appendingPathComponent(fileNames["Pose"]!)
-        let tactileFileURL = generalDataDirectory.appendingPathComponent(fileNames["Tactile"]!)
-        let rgbImagesDirectory = generalDataDirectory.appendingPathComponent(fileNames["RGBImages"]!)
-        let depthImagesDirectory = generalDataDirectory.appendingPathComponent(fileNames["DepthImages"]!)
-        
+
+        guard let rgbFileName = fileNames["RGB"],
+              let depthFileName = fileNames["Depth"],
+              let poseFileName = fileNames["Pose"],
+              let tactileFileName = fileNames["Tactile"] else {
+            return nil
+        }
+
+        let rgbVideoURL = generalDataDirectory.appendingPathComponent(rgbFileName)
+        let depthVideoURL = generalDataDirectory.appendingPathComponent(depthFileName)
+        let poseTextURL = generalDataDirectory.appendingPathComponent(poseFileName)
+        let tactileFileURL = generalDataDirectory.appendingPathComponent(tactileFileName)
+
+        // Only create image directories if debug frame saving is enabled
+        var rgbImagesDirectory: URL?
+        var depthImagesDirectory: URL?
+        if mlManager?.saveDebugFrames == true,
+           let rgbDirName = fileNames["RGBImages"],
+           let depthDirName = fileNames["DepthImages"] {
+            rgbImagesDirectory = generalDataDirectory.appendingPathComponent(rgbDirName)
+            depthImagesDirectory = generalDataDirectory.appendingPathComponent(depthDirName)
+        }
+
         do {
             try FileManager.default.createDirectory(at: generalDataDirectory, withIntermediateDirectories: true)
-            if self.depthStatus.isDepthAvailable {
-                try FileManager.default.createDirectory(at: depthImagesDirectory, withIntermediateDirectories: true)
+            if mlManager?.saveDebugFrames == true && self.depthStatus.isDepthAvailable,
+               let depthDir = depthImagesDirectory {
+                try FileManager.default.createDirectory(at: depthDir, withIntermediateDirectories: true)
             }
             try createFile(fileURL: poseTextURL)
         } catch {
@@ -1114,12 +1135,14 @@ class ARViewModel: ObservableObject{
         let dataSize = width * height * MemoryLayout<Float32>.size
         let data = Data(bytes: floatBuffer, count: dataSize)
         
-        // Save binary data to a file
-        let fileURL = self.depthDirect.appendingPathComponent("\(Int64(Date().timeIntervalSince1970*1000)).bin")
-        do {
-            try data.write(to: fileURL)
-        } catch {
-            // Error saving binary file - continue capture
+        // Save binary data to a file (only if debug frame saving is enabled)
+        if let depthDir = self.depthDirect {
+            let fileURL = depthDir.appendingPathComponent("\(Int64(Date().timeIntervalSince1970*1000)).bin")
+            do {
+                try data.write(to: fileURL)
+            } catch {
+                // Error saving binary file - continue capture
+            }
         }
     }
     
@@ -1173,7 +1196,12 @@ class ARViewModel: ObservableObject{
         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
         do{
             let contents = try FileManager.default.contentsOfDirectory(at: documentsURL[0], includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants])
-            demosCounter = contents.count
+            let directories = contents.filter { url in
+                var isDirectory: ObjCBool = false
+                FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+                return isDirectory.boolValue
+            }
+            demosCounter = directories.count
         } catch {
             demosCounter = 0
         }

@@ -70,7 +70,7 @@ class ARVisualizationManager: ObservableObject {
     private var worldOrigin: SIMD3<Float> = SIMD3<Float>(0, 0, 0)
     private var hasEstablishedOrigin: Bool = false
     
-    var debugLoggingEnabled: Bool = false
+    var debugLoggingEnabled: Bool = true
     var isGripperClosed: Bool = false
     var useVirtualGripper: Bool = false
     var applyEndOffset: Bool = true
@@ -383,29 +383,24 @@ class ARVisualizationManager: ObservableObject {
               let wireframePos = wireframeVisualPosition,
               let targetPos = activeTargetPosition else { return }
         
-        let targetHalf = targetSize / 2.0
-        let wireframeHalf = wireframeSize / 2.0
-        
-        let targetMin = targetPos - SIMD3<Float>(targetHalf, targetHalf, targetHalf)
-        let targetMax = targetPos + SIMD3<Float>(targetHalf, targetHalf, targetHalf)
-        let wireframeMin = wireframePos - SIMD3<Float>(wireframeHalf, wireframeHalf, wireframeHalf)
-        let wireframeMax = wireframePos + SIMD3<Float>(wireframeHalf, wireframeHalf, wireframeHalf)
-        
-        let tolerance: Float = 0.001
-        let isEnveloped = (targetMin.x >= wireframeMin.x - tolerance && targetMax.x <= wireframeMax.x + tolerance &&
-                          targetMin.y >= wireframeMin.y - tolerance && targetMax.y <= wireframeMax.y + tolerance &&
-                          targetMin.z >= wireframeMin.z - tolerance && targetMax.z <= wireframeMax.z + tolerance)
+        // Use distance-based proximity instead of strict overlap
+        let distance = length(targetPos - wireframePos)
+
+        // Proximity threshold: more generous threshold for easier interaction
+        // targetSize=0.012m, wireframeSize=0.018m, so threshold = ~3cm
+        let proximityThreshold: Float = 0.03  // 3cm threshold - much more forgiving
+
+        let isNearby = distance <= proximityThreshold
         
         if debugLoggingEnabled {
-            let distance = length(targetPos - wireframePos)
             let distanceChanged = abs(distance - lastLoggedDistance) > 0.01
-            if distanceChanged || isEnveloped {
-                print("[Proximity] Distance: \(String(format: "%.3f", distance))m | Enveloped: \(isEnveloped)")
+            if distanceChanged || isNearby {
+                print("[Proximity] Distance: \(String(format: "%.3f", distance))m | Threshold: \(String(format: "%.3f", proximityThreshold))m | Nearby: \(isNearby)")
                 lastLoggedDistance = distance
             }
         }
-        
-        if isEnveloped {
+
+        if isNearby {
             if actionState != .reached {
                 actionState = .reached
                 transitionTargetToFading()

@@ -90,7 +90,7 @@ class MLInferenceManager: ObservableObject {
     @Published var enableGripperOverlay: Bool = true  // Default enabled (for model input)
     @Published var showGripperOverlayOnScreen: Bool = true  // Show overlay on AR view
     @Published var currentGripperOverlayImage: UIImage?  // Current overlay image for display
-    @Published var saveDebugFrames: Bool = true     // For testing
+    @Published var saveDebugFrames: Bool = false     // For testing
     
     // MARK: - Inference Settings
     enum InferenceFrequency: CaseIterable {
