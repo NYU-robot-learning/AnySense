@@ -81,7 +81,7 @@ struct ActionTransformUtils {
         var cam_euler: SIMD3<Float>
         switch rotationUnit {
         case .eulerXYZ:
-            cam_euler = SIMD3<Float>(r1, r2, r3)
+            cam_euler = SIMD3<Float>(-r1, -r2, -r3)
         case .axisAngle:
             let R_cam = rotationMatrixFromAxisAngle(axisAngle: SIMD3<Float>(r1, r2, r3))
             cam_euler = eulerXYZ(from: matrixFromRotationAndTranslation(R_cam, t: SIMD3<Float>(0,0,0)))
@@ -165,14 +165,6 @@ struct ActionTransformUtils {
         let R11 = T.columns.1.y, R12 = T.columns.2.y
         let R21 = T.columns.1.z, R22 = T.columns.2.z
         
-        // For 'xyz':
-        // y = asin(R02)
-        // if |cos(y)| > eps:
-        //   x = atan2(-R12, R22)
-        //   z = atan2(-R01, R00)
-        // else (gimbal lock):
-        //   x = atan2(R21, R11)
-        //   z = 0
         let y = asin(clamp(R02, -1.0, 1.0))
         let cy = cos(y)
         let eps: Float = 1e-6

@@ -243,9 +243,9 @@ struct ReadView : View{
 
                         Spacer()
 
-                        // Right side: goal (if applicable) and flashlight
-                        if (arViewModel.mlManager?.isPointConditioned ?? false) {
-                            HStack(spacing: 20) {
+                        // Right side: goal (if applicable), flashlight, and debug
+                        HStack(spacing: 20) {
+                            if (arViewModel.mlManager?.isPointConditioned ?? false) {
                                 VStack(spacing: 4) {
                                     Button(action: {
                                         let newValue = !arViewModel.goalTapModeEnabled
@@ -266,20 +266,8 @@ struct ReadView : View{
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
-                                
-                                VStack(spacing: 4) {
-                                    Button(action: toggleFlash) {
-                                        Image(systemName: openFlash ? "flashlight.off.circle.fill" : "flashlight.on.circle.fill")
-                                            .resizable()
-                                            .frame(height: 36)
-                                            .frame(width: 36)
-                                    }
-                                    Text(openFlash ? "Flash off" : "Flash on")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
                             }
-                        } else {
+                            
                             VStack(spacing: 4) {
                                 Button(action: toggleFlash) {
                                     Image(systemName: openFlash ? "flashlight.off.circle.fill" : "flashlight.on.circle.fill")
@@ -297,12 +285,8 @@ struct ReadView : View{
                     .padding(.bottom, arViewPadding / 4.0 - (buttonSize / 4.0))
                 }
                 
-                
-                
-                
             }
-            .frame(width: 10.0, height: 10.0)
-            .alert(isPresented: $arViewModel.depthStatus.showAlert) {  // ✅ Show alert when depth is missing
+            .alert(isPresented: $arViewModel.depthStatus.showAlert) {  // Show alert when depth is missing
                 Alert(
                     title: Text("Depth Data Unavailable"),
                     message: Text("Your device does not support depth data, or it is temporarily unavailable."),
