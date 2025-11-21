@@ -24,23 +24,26 @@ struct ActionTransformUtils {
     }()
     
     // MARK: - Public Entry
-    // The policy produces an action tensor in its own convention. We first map it into the
-    // iPhone CAMERA frame (policy→camera), then convert CAMERA→ROBOT to match server logic.
+    // The policy produces an action tensor in its own convention (labels.json).
+    // We first map it into the iPhone CAMERA frame (policy→camera), then convert 
+    // CAMERA→ROBOT using the Z90 rotation to match the robot's execution frame.
     // Input: policy action [tx, ty, tz, r1, r2, r3, gripper]
     // Output: robot-frame [tx, ty, tz, rx, ry, rz, gripper] (Euler xyz)
     static func toRobotActions(_ policyAction7: [Float], rotationUnit: RotationUnit = .eulerXYZ) -> [Float] {
         guard policyAction7.count >= 7 else { return policyAction7 }
+        
+        // 1) Policy (Labels) → Camera Frame
         let camEulerAction = policyToCameraEulerAction(policyAction7, rotationUnit: rotationUnit)
         let gr = camEulerAction[6]
         
-        // 1) CAMERA action → 4x4
+        // Build 4x4 Transform in Camera Frame
         let T_c = buildTransform(translation: SIMD3<Float>(camEulerAction[0], camEulerAction[1], camEulerAction[2]), eulerXYZ: SIMD3<Float>(camEulerAction[3], camEulerAction[4], camEulerAction[5]))
         
-        // 2) Camera → Robot: T_r = Z90 @ (P.T @ T_c @ P) @ Z90.T (parity with server)
-        let Pt = simd_transpose(P)
+        // 2) Camera → Robot: T_r = Z90 @ T_c @ Z90.T
+        // We skip the intermediate P transform (Pt * T_c * P) because T_c is already 
+        // in the correct Camera frame, and Z90 maps Camera(Right,Up,Back) → Robot(Down,Right,Back).
         let Zt = simd_transpose(Z90)
-        let T_perm = Pt * T_c * P
-        let T_r = Z90 * T_perm * Zt
+        let T_r = Z90 * T_c * Zt
         
         // 3) 4x4 → robot action (Euler xyz)
         let rxyz = eulerXYZ(from: T_r)
@@ -50,22 +53,28 @@ struct ActionTransformUtils {
     }
 
     // Policy → CAMERA mapping in a single place so viz and robot stay consistent.
-    // Convention used here mirrors ARVisualizationManager's historical mapping with a corrected Z sign:
-    //  - policy: [down, right, backward]
-    //  - camera: x=right, y=up, z forward is -Z in ARKit conventions → use z = -backward
+    // Mapping based on frame definitions:
+    //  - Policy (Labels): [x: Left, y: Forward, z: Down]
+    //  - Camera (ARKit):  [x: Right, y: Up, z: Back]
+    //
+    // Transformation:
+    //  - Policy x (Left)    → Camera -x (Right)
+    //  - Policy y (Forward) → Camera -z (Back)
+    //  - Policy z (Down)    → Camera -y (Up)
     static func policyToCameraEulerAction(_ policyAction7: [Float], rotationUnit: RotationUnit = .eulerXYZ) -> [Float] {
         guard policyAction7.count >= 7 else { return policyAction7 }
-        let ml_x = policyAction7[0]  // down
-        let ml_y = policyAction7[1]  // right
-        let ml_z = policyAction7[2]  // backward
+        let ml_x = policyAction7[0]  // Left
+        let ml_y = policyAction7[1]  // Forward
+        let ml_z = policyAction7[2]  // Down
         let r1 = policyAction7[3]
         let r2 = policyAction7[4]
         let r3 = policyAction7[5]
         let gr = policyAction7[6]
         
-        // Translation mapping (labels → CAMERA) using inverse of goal mapping:
-        // labels: x = -x_cam, y = -z_cam, z = -y_cam
-        // => camera: x = -x_l, y = -z_l, z = -y_l
+        // Translation mapping (Labels → CAMERA)
+        // cam_x = -label_x (Left -> Right)
+        // cam_y = -label_z (Down -> Up)
+        // cam_z = -label_y (Forward -> Back)
         let cam_t = SIMD3<Float>(-ml_x, -ml_z, -ml_y)
         
         // Rotation mapping → always return Euler xyz in CAMERA frame
@@ -149,26 +158,12 @@ struct ActionTransformUtils {
         return R
     }
 
-    // Rotate a vector in camera XY plane by 90° increments (right-handed, +Z out of screen)
-    // private static func rotateXY(_ v: SIMD3<Float>) -> SIMD3<Float> {
-    //     switch ((quarterTurns % 4) + 4) % 4 { // normalize to 0..3
-    //     case 1: // +90° (counterclockwise): (x,y) -> (-y, x)
-    //         return SIMD3<Float>(-v.y, v.x, v.z)
-    //     case 2: // 180°
-    //         return SIMD3<Float>(-v.x, -v.y, v.z)
-    //     case 3: // -90° (clockwise): (x,y) -> (y, -x)
-    //         return SIMD3<Float>(v.y, -v.x, v.z)
-    //     default:
-    //         return v
-    //     }
-    // }
-    
-    // Extract Euler 'xyz' (radians) from 4x4
+    // Rotation matrix for Euler 'xyz' (radians)
     private static func eulerXYZ(from T: simd_float4x4) -> SIMD3<Float> {
         // Reconstruct row-major elements from column-major storage
         let R00 = T.columns.0.x, R01 = T.columns.1.x, R02 = T.columns.2.x
-        let R10 = T.columns.0.y, R11 = T.columns.1.y, R12 = T.columns.2.y
-        let R20 = T.columns.0.z, R21 = T.columns.1.z, R22 = T.columns.2.z
+        let R11 = T.columns.1.y, R12 = T.columns.2.y
+        let R21 = T.columns.1.z, R22 = T.columns.2.z
         
         // For 'xyz':
         // y = asin(R02)
@@ -207,18 +202,18 @@ struct ActionTransformUtils {
         guard policyAction7.count >= 7 else { return "<invalid action>" }
         let cam = policyToCameraEulerAction(policyAction7, rotationUnit: rotationUnit)
         let T_c = buildTransform(translation: SIMD3<Float>(cam[0], cam[1], cam[2]), eulerXYZ: SIMD3<Float>(cam[3], cam[4], cam[5]))
-        let Pt = simd_transpose(P)
+        
         let Zt = simd_transpose(Z90)
-        let T_perm = Pt * T_c * P
-        let T_r = Z90 * T_perm * Zt
+        let T_r = Z90 * T_c * Zt
+        
         let robotEuler = eulerXYZ(from: T_r)
         let robotT = translation(from: T_r)
         func fmt(_ f: Float) -> String { String(format: "%.4f", f) }
         func fmt3(_ v: SIMD3<Float>) -> String { "(\(fmt(v.x)),\(fmt(v.y)),\(fmt(v.z)))" }
         return [
-            "policy      t,r: \(fmt3(SIMD3(policyAction7[0], policyAction7[1], policyAction7[2]))) \(fmt3(SIMD3(policyAction7[3], policyAction7[4], policyAction7[5])))",
-            "camera (map) t,r_euler: \(fmt3(SIMD3(cam[0], cam[1], cam[2]))) \(fmt3(SIMD3(cam[3], cam[4], cam[5])))",
-            "robot       t,r_euler: \(fmt3(robotT)) \(fmt3(robotEuler))",
+            "policy(Lab) t,r: \(fmt3(SIMD3(policyAction7[0], policyAction7[1], policyAction7[2]))) \(fmt3(SIMD3(policyAction7[3], policyAction7[4], policyAction7[5])))",
+            "camera(Cam) t,r: \(fmt3(SIMD3(cam[0], cam[1], cam[2]))) \(fmt3(SIMD3(cam[3], cam[4], cam[5])))",
+            "robot(Exec) t,r: \(fmt3(robotT)) \(fmt3(robotEuler))",
         ].joined(separator: "\n")
     }
 }

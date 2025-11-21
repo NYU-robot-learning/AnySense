@@ -136,11 +136,11 @@ struct SettingsView : View{
                         Picker("Select Model", selection: Binding<UUID?>(
                             get: { 
                                 let activeID = modelManager.activeModelID
-                                print("DEBUG: Picker get - activeModelID: \(String(describing: activeID))")
+                                // print("DEBUG: Picker get - activeModelID: \(String(describing: activeID))")
                                 return activeID
                             },
                             set: { newValue in
-                                print("DEBUG: Picker set - newValue: \(String(describing: newValue))")
+                                // print("DEBUG: Picker set - newValue: \(String(describing: newValue))")
                                 if let newValue = newValue {
                                     // Force immediate UI update
                                     DispatchQueue.main.async {

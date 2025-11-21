@@ -203,7 +203,7 @@ class MLInferenceManager: ObservableObject {
             return
         }
         
-        let isGripperClosed = currentGripperValue < 0.6
+        let isGripperClosed = currentGripperValue < 0.7
         let imageToShow = isGripperClosed ? gripperClosedUIImage : gripperOpenUIImage
         
         print("DEBUG: Updating gripper overlay - value: \(String(format: "%.3f", currentGripperValue)), closed: \(isGripperClosed)")
@@ -270,7 +270,7 @@ class MLInferenceManager: ObservableObject {
 
     private func getCurrentGripperOverlay() -> CIImage? {
         // Use closed gripper when gripper value < 0.6, otherwise open gripper
-        let isGripperClosed = currentGripperValue < 0.6
+        let isGripperClosed = currentGripperValue < 0.7
         if saveDebugFrames {
             print("Gripper state: \(String(format: "%.3f", currentGripperValue)) → \(isGripperClosed ? "CLOSED" : "OPEN")")
         }
@@ -499,8 +499,9 @@ class MLInferenceManager: ObservableObject {
             // camera: x right, y up, z back
             // labels: x left, y forward, z down
             // Mapping: x = -x_cam, y = -z_cam, z = -y_cam
-            // We add 0.02 to the y coordinate since training data is shifted forward a bit.
-            return [-p_c4.x, -p_c4.z + 0.02, -p_c4.y] 
+            // return [-p_c4.x, -p_c4.z + 0.02, -p_c4.y]
+            let goalArr = [-p_c4.x, -p_c4.z + 0.02, -p_c4.y]
+            return goalArr
         }
         // If model expects 2D goals, return nil since we only support 3D goals now
         return nil
@@ -520,6 +521,7 @@ class MLInferenceManager: ObservableObject {
     
     // MARK: - Proximity Handler
     private func handleProximityReached() {
+        print("[ML] 🏁 Goal Reached (Proximity Trigger Received)")
         guard !isInferencePending else {
             print("[MLInference] Proximity reached but inference already pending - skipping")
             return
@@ -563,10 +565,6 @@ class MLInferenceManager: ObservableObject {
         let isFirstInference = !hasRunFirstInference
         let isProximityTriggered = proximityReached && !isInferencePending
         let shouldRunInference = isFirstInference || isProximityTriggered
-
-        if debugLoggingEnabled && !shouldRunInference {
-            print("[MLInference] Not triggering: firstInference=\(hasRunFirstInference), proximity=\(proximityReached), pending=\(isInferencePending)")
-        }
 
         guard shouldRunInference else {
             return
@@ -949,7 +947,8 @@ class MLInferenceManager: ObservableObject {
             // Update gripper value for overlay switching (7th element, index 6)
             if jointPositions.count >= 7 {
                 currentGripperValue = jointPositions[6]
-                let isGripperClosed = currentGripperValue < 0.6
+                let isGripperClosed = currentGripperValue < 0.7
+                print("[ML] Standard - Gripper Value: \(String(format: "%.3f", currentGripperValue)) | State: \(isGripperClosed ? "CLOSED" : "OPEN")")
                 
                 Task { @MainActor [weak self] in
                     self?.updateGripperOverlayDisplay()
@@ -977,18 +976,11 @@ class MLInferenceManager: ObservableObject {
                 if jointPositions.count >= 7 {
                     let src = Array(jointPositions.prefix(7))
                     if self?.enableTransformDebug == true {
-                        let report = ActionTransformUtils.debugTransformReport(src, rotationUnit: self?.rotationUnit ?? .eulerXYZ)
-                        print("Coordinate Transform: \(report)")
+                         let report = ActionTransformUtils.debugTransformReport(src, rotationUnit: self?.rotationUnit ?? .eulerXYZ)
+                         print("Coordinate Transform:\n\(report)")
                     }
-                    let robot = ActionTransformUtils.toRobotActions(src, rotationUnit: self?.rotationUnit ?? .eulerXYZ)
-                    print("Robot actions: [\(robot.map { String(format: "%.3f", $0) }.joined(separator: ", "))]")
-                    // Joint actions are now sent embedded in the main USB stream
                 }
             }
-            
-            let positionString = jointPositions.map { String(format: "%.3f", $0) }.joined(separator: ", ")
-            let modelName = modelManager.activeModel?.name ?? "Unknown"
-            print("[\(modelName)] Standard: [\(positionString)] (\(String(format: "%.1f", inferenceTime * 1000))ms)")
             
         } else {
             // Point-conditioned models
@@ -1005,7 +997,8 @@ class MLInferenceManager: ObservableObject {
             // Update gripper value for overlay switching (7th element, index 6)
             if jointPositions.count >= 7 {
                 currentGripperValue = jointPositions[6]
-                let isGripperClosed = currentGripperValue < 0.6
+                let isGripperClosed = currentGripperValue < 0.7
+                print("[ML] PointCond - Gripper Value: \(String(format: "%.3f", currentGripperValue)) | State: \(isGripperClosed ? "CLOSED" : "OPEN")")
                 
                 Task { @MainActor [weak self] in
                     self?.updateGripperOverlayDisplay()
@@ -1032,20 +1025,16 @@ class MLInferenceManager: ObservableObject {
                 // Joint actions are automatically sent via USB stream (transform to robot frame)
                 if jointPositions.count >= 7 {
                     let src = Array(jointPositions.prefix(7))
-                    let robot = ActionTransformUtils.toRobotActions(src, rotationUnit: self?.rotationUnit ?? .eulerXYZ)
-                    print("Robot actions: [\(robot.map { String(format: "%.3f", $0) }.joined(separator: ", "))]")
-                    // Joint actions are now sent embedded in the main USB stream
+                    if self?.enableTransformDebug == true {
+                         let report = ActionTransformUtils.debugTransformReport(src, rotationUnit: self?.rotationUnit ?? .eulerXYZ)
+                         print("Coordinate Transform:\n\(report)")
+                    }
                 }
             }
             
-            let positionString = jointPositions.map { String(format: "%.3f", $0) }.joined(separator: ", ")
-            let modelName = modelManager.activeModel?.name ?? "Unknown"
-            let modelTypeStr = metadata.modelType.displayName
-            print("[\(modelName)] \(modelTypeStr): [\(positionString)] (\(String(format: "%.1f", inferenceTime * 1000))ms)")
-            
             // Log goal point status for point-conditioned models
             if metadata.requiresGoalPoint, let goalPoint = currentGoalPoint {
-                print("Goal: [\(String(format: "%.3f", goalPoint.x)), \(String(format: "%.3f", goalPoint.y)), \(String(format: "%.3f", goalPoint.z))]")
+               // Goal point logging removed for cleanliness
             }
         }
     }

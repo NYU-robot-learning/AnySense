@@ -520,18 +520,6 @@ class ARViewModel: ObservableObject{
         mlManager?.setUSBStreamingState(isActive: false)
     }
     
-//    func startWiFiStreaming(host: String, port: UInt16) {
-        // Set up the network connection
-//        // Start WebRTC connection
-//        webRTCManager.setupConnection()
-//    }
-
-//    func stopWiFiStreaming() {
-//        displayLink?.invalidate()
-//        displayLink = nil
-//        streamConnection?.cancel()
-//        streamConnection = nil
-//    }
     
     @objc private func sendFrame(link: CADisplayLink) {
         streamVideoFrameUSB()

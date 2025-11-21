@@ -393,15 +393,12 @@ class ARVisualizationManager: ObservableObject {
         let isNearby = distance <= proximityThreshold
         
         if debugLoggingEnabled {
-            let distanceChanged = abs(distance - lastLoggedDistance) > 0.01
-            if distanceChanged || isNearby {
-                print("[Proximity] Distance: \(String(format: "%.3f", distance))m | Threshold: \(String(format: "%.3f", proximityThreshold))m | Nearby: \(isNearby)")
-                lastLoggedDistance = distance
-            }
+            // Only log critical proximity events if needed
         }
 
         if isNearby {
             if actionState != .reached {
+                print("[Viz] 🎯 Target Cube REACHED (Proximity Trigger)")
                 actionState = .reached
                 transitionTargetToFading()
                 NotificationCenter.default.post(name: NSNotification.Name("ProximityReached"), object: nil)
@@ -459,7 +456,7 @@ class ARVisualizationManager: ObservableObject {
         
         if isClosed && !previousState {
             // Gripper just closed - hide all visualization
-            print("Gripper closed - hiding all visualization")
+            print("[Viz] Gripper CLOSED - Hiding visualization")
             
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
@@ -483,7 +480,7 @@ class ARVisualizationManager: ObservableObject {
                 self.actionState = .waiting
             }
         } else if !isClosed && previousState {
-            print("Gripper opened - visualization enabled")
+            print("[Viz] Gripper OPENED - Visualization enabled")
         }
     }
     
@@ -525,7 +522,16 @@ class ARVisualizationManager: ObservableObject {
         if isVisualizationEnabled && hasEstablishedOrigin {
             let t = arFrame.camera.transform
             let currentCameraPosition = SIMD3<Float>(t.columns.3.x, t.columns.3.y, t.columns.3.z) - worldOrigin
-            let cameraWorldPosition = currentCameraPosition + SIMD3<Float>(0, 0, -wireframeOffsetMeters)
+            
+            // Calculate wireframe position in World Frame
+            // The wireframe is fixed at (0, 0, -wireframeOffsetMeters) in Camera Frame (Forward)
+            // We need to rotate this offset by the camera's orientation to get it in World Frame
+            
+            // Camera Forward vector is -Z axis (column 2 is +Z/Backward)
+            let cameraBackward = SIMD3<Float>(t.columns.2.x, t.columns.2.y, t.columns.2.z)
+            let offsetInWorld = -wireframeOffsetMeters * cameraBackward
+            
+            let cameraWorldPosition = currentCameraPosition + offsetInWorld
             updateWireframe(cameraRelativePosition: cameraWorldPosition)
         }
     }
@@ -593,11 +599,11 @@ class ARVisualizationManager: ObservableObject {
                 worldOriginAnchor.addChild(newTarget)
                 self.activeTargetEntity = newTarget
                 self.actionState = .waiting
-                print("[Viz] ✅ New target created at (\(String(format: "%.3f", position.x)), \(String(format: "%.3f", position.y)), \(String(format: "%.3f", position.z)))")
             }
             
             self.activeTargetEntity?.position = position
             self.activeTargetPosition = position
+            print("[Viz] Cube (Target) Position: (\(String(format: "%.3f", position.x)), \(String(format: "%.3f", position.y)), \(String(format: "%.3f", position.z)))")
         }
     }
     
@@ -642,6 +648,6 @@ class ARVisualizationManager: ObservableObject {
         let relativePosition = targetPose - worldOrigin
         goalPointEntity?.position = relativePosition
         worldOriginAnchor.addChild(goalPointEntity!)
-        print("✅ Goal point created at distance: \(length(relativePosition))m")
+        print("[Viz] Sphere (Goal) Position: (\(String(format: "%.3f", relativePosition.x)), \(String(format: "%.3f", relativePosition.y)), \(String(format: "%.3f", relativePosition.z))) | Dist: \(length(relativePosition))m")
     }
 }
