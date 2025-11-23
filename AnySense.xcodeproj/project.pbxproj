@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		01214E392ED25092009E565F /* sam2-jitter.mlpackage in Sources */ = {isa = PBXBuildFile; fileRef = 01214E372ED25092009E565F /* sam2-jitter.mlpackage */; };
 		01682BC42DF0D88100CDA03C /* ModelInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F5B7C92DEA6A1000061B16 /* ModelInfo.swift */; };
 		01682BC52DF0D88C00CDA03C /* MLModel+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F5B7CB2DEA6A2000061B16 /* MLModel+Extensions.swift */; };
 		01682BC92DF4D7CB00CDA03C /* ARVisualizationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01682BC82DF4D7CB00CDA03C /* ARVisualizationManager.swift */; };
@@ -48,6 +49,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		01214E372ED25092009E565F /* sam2-jitter.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = "sam2-jitter.mlpackage"; sourceTree = "<group>"; };
 		01682BC82DF4D7CB00CDA03C /* ARVisualizationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ARVisualizationManager.swift; sourceTree = "<group>"; };
 		01D2FDD52E64C33600F0BA98 /* ActionTransformUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionTransformUtils.swift; sourceTree = "<group>"; };
 		01F5B7C32DEA697200061B16 /* MLInferenceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLInferenceManager.swift; sourceTree = "<group>"; };
@@ -100,6 +102,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		01214E382ED25092009E565F /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				01214E372ED25092009E565F /* sam2-jitter.mlpackage */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
 		B9104F512BFDE63A000D4DDD = {
 			isa = PBXGroup;
 			children = (
@@ -122,6 +132,7 @@
 		B9104F5C2BFDE63A000D4DDD /* AnySense */ = {
 			isa = PBXGroup;
 			children = (
+				01214E382ED25092009E565F /* Models */,
 				01F5B7C92DEA6A1000061B16 /* ModelInfo.swift */,
 				01F5B7CB2DEA6A2000061B16 /* MLModel+Extensions.swift */,
 				B9944A332CFE982E00232FBB /* MainPage.swift */,
@@ -353,6 +364,7 @@
 				B9E4B22F2D62A9BA0032E877 /* ARViewContainer.swift in Sources */,
 				B9E4B2302D62A9BA0032E877 /* USBManager.swift in Sources */,
 				01F5B7C62DEA698D00061B16 /* MLInferenceResultsView.swift in Sources */,
+				01214E392ED25092009E565F /* sam2-jitter.mlpackage in Sources */,
 				B9944A342CFE983300232FBB /* MainPage.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

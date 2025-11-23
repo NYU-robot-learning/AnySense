@@ -48,11 +48,11 @@ private struct GripperBlock: View {
     }
 
     private var gripperState: String {
-        return gripperValue < 0.6 ? "CLOSED" : "OPEN"
+        return gripperValue < 0.7 ? "CLOSED" : "OPEN"
     }
 
     private var stateColor: Color {
-        return gripperValue < 0.6 ? .red : .green
+        return gripperValue < 0.7 ? .red : .green
     }
 
     var body: some View {

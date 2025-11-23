@@ -23,14 +23,6 @@ enum TargetState {
     case reached  // Green target
 }
 
-// MARK: - Fading Target
-struct FadingTarget {
-    var entity: ModelEntity
-    var position: SIMD3<Float>
-    var fadeStartTime: CFTimeInterval
-    var state: TargetState
-}
-
 // MARK: - Visualization Frequency
 enum VisualizationFrequency: CaseIterable {
     case high, medium, low, minute
@@ -84,9 +76,6 @@ class ARVisualizationManager: ObservableObject {
     private var wireframeVisualPosition: SIMD3<Float>?
     private var activeTargetEntity: ModelEntity?
     private var activeTargetPosition: SIMD3<Float>?
-    private var fadingTargets: [FadingTarget] = []
-    private var displayLink: CADisplayLink?
-    private let fadeDuration: CFTimeInterval = 0.1
     private let targetSize: Float = 0.012
     private var lastWireframeUpdateTime: CFTimeInterval = 0
     private let wireframeUpdateInterval: CFTimeInterval = 0.033
@@ -104,44 +93,7 @@ class ARVisualizationManager: ObservableObject {
     // MARK: - Setup Methods
     func setupVisualization(with arView: ARView) {
         self.arView = arView
-        setupFadeAnimation()
         log("Setup completed - using wireframe seek-target visualization")
-    }
-    
-    // MARK: - Fade Animation Setup
-    private func setupFadeAnimation() {
-        displayLink = CADisplayLink(target: self, selector: #selector(updateFadingTargets))
-        displayLink?.preferredFrameRateRange = CAFrameRateRange(minimum: 20, maximum: 30, preferred: 30)
-        displayLink?.add(to: .main, forMode: .common)
-    }
-    
-    @objc private func updateFadingTargets() {
-        guard !fadingTargets.isEmpty else { return }
-        
-        let currentTime = CACurrentMediaTime()
-        var targetsToRemove: [Int] = []
-        
-        for (index, fadingTarget) in fadingTargets.enumerated() {
-            let elapsed = currentTime - fadingTarget.fadeStartTime
-            let alpha = Float(max(0.0, 1.0 - elapsed / fadeDuration))
-            
-            if alpha <= 0.05 {
-                fadingTarget.entity.removeFromParent()
-                targetsToRemove.append(index)
-                continue
-            }
-            
-            let greenMaterial = SimpleMaterial(
-                color: UIColor.systemGreen.withAlphaComponent(CGFloat(alpha)),
-                isMetallic: false
-            )
-            fadingTarget.entity.model?.materials = [greenMaterial]
-        }
-        
-        // Remove completed fades (reverse order to maintain indices)
-        for index in targetsToRemove.reversed() {
-            fadingTargets.remove(at: index)
-        }
     }
     
     // MARK: - Recording Control Methods
@@ -236,11 +188,6 @@ class ARVisualizationManager: ObservableObject {
             self.activeTargetEntity?.removeFromParent()
             self.activeTargetEntity = nil
             self.activeTargetPosition = nil
-            
-            for fadingTarget in self.fadingTargets {
-                fadingTarget.entity.removeFromParent()
-            }
-            self.fadingTargets.removeAll()
         }
     }
 
@@ -387,20 +334,20 @@ class ARVisualizationManager: ObservableObject {
         let distance = length(targetPos - wireframePos)
 
         // Proximity threshold: more generous threshold for easier interaction
-        // targetSize=0.012m, wireframeSize=0.018m, so threshold = ~3cm
-        let proximityThreshold: Float = 0.03  // 3cm threshold - much more forgiving
+        // targetSize=0.012m, wireframeSize=0.018m
+        let proximityThreshold: Float = 0.01 // 1cm threshold 
 
         let isNearby = distance <= proximityThreshold
-        
-        if debugLoggingEnabled {
-            // Only log critical proximity events if needed
-        }
+
 
         if isNearby {
             if actionState != .reached {
-                print("[Viz] 🎯 Target Cube REACHED (Proximity Trigger)")
+                print("Target Cube REACHED")
                 actionState = .reached
-                transitionTargetToFading()
+                // Simply remove the target when reached
+                activeTargetEntity?.removeFromParent()
+                activeTargetEntity = nil
+                activeTargetPosition = nil
                 NotificationCenter.default.post(name: NSNotification.Name("ProximityReached"), object: nil)
             }
         } else {
@@ -408,25 +355,6 @@ class ARVisualizationManager: ObservableObject {
                 actionState = .waiting
             }
         }
-    }
-    
-    // MARK: - Target Transition
-    private func transitionTargetToFading() {
-        guard let activeEntity = activeTargetEntity,
-              let activePos = activeTargetPosition else { return }
-        
-        let greenMaterial = SimpleMaterial(color: UIColor.systemGreen.withAlphaComponent(1.0), isMetallic: false)
-        activeEntity.model?.materials = [greenMaterial]
-        
-        let fadingTarget = FadingTarget(
-            entity: activeEntity,
-            position: activePos,
-            fadeStartTime: CACurrentMediaTime(),
-            state: .reached
-        )
-        fadingTargets.append(fadingTarget)
-        activeTargetEntity = nil
-        activeTargetPosition = nil
     }
     
     // MARK: - Manual Trigger Support
@@ -469,12 +397,6 @@ class ARVisualizationManager: ObservableObject {
                 self.activeTargetEntity?.removeFromParent()
                 self.activeTargetEntity = nil
                 self.activeTargetPosition = nil
-                
-                // Remove fading targets
-                for fadingTarget in self.fadingTargets {
-                    fadingTarget.entity.removeFromParent()
-                }
-                self.fadingTargets.removeAll()
                 
                 // Set action state to waiting
                 self.actionState = .waiting

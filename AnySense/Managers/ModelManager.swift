@@ -107,33 +107,53 @@ class ModelManager: ObservableObject {
     
     // MARK: - Bundled Model Setup
     private func setupBundledModel() {
-        // Register both standard and point-conditioned bundled models if present
-        let bundledNames = ["GeneralPickUpV1", "general-pick-up-goal-3-5k-demos"]
+        // Register the default bundled model if present
+        let defaultModelName = "sam2-jitter"  // Default bundled model
         var added: [ModelInfo] = []
-        for name in bundledNames {
-            let alreadyExists = availableModels.contains { $0.source == .bundled && $0.name == name }
-            guard !alreadyExists else { continue }
-            // Only add if the resource actually exists in the bundle with any supported extension
-            let presentInBundle =
-                Bundle.main.url(forResource: name, withExtension: "mlmodelc") != nil ||
-                Bundle.main.url(forResource: name, withExtension: "mlpackage") != nil ||
-                Bundle.main.url(forResource: name, withExtension: "mlmodel") != nil
-            guard presentInBundle else { continue }
-            var info = ModelInfo(
-                name: name,
-                fileName: "\(name).mlmodel",
-                source: .bundled
-            )
-            info.compilationStatus = .compiled
-            availableModels.append(info)
-            added.append(info)
-        }
-        // Set a default active model if none is active yet
-        if activeModel == nil {
-            if let preferred = availableModels.first(where: { $0.source == .bundled && $0.name == "GeneralPickUpV1" }) ?? added.first {
-                setActiveModel(id: preferred.id)
+        
+        let alreadyExists = availableModels.contains { $0.source == .bundled && $0.name == defaultModelName }
+        guard !alreadyExists else {
+            // Model already registered, just ensure it's active if no active model
+            if activeModel == nil, let bundledModel = availableModels.first(where: { $0.source == .bundled && $0.name == defaultModelName }) {
+                setActiveModel(id: bundledModel.id)
+                print("Set default model: \(bundledModel.name)")
             }
+            return
         }
+        
+        // Check if the resource exists in the bundle (try .mlpackage first, then .mlmodelc, then .mlmodel)
+        var modelURL: URL?
+        if let url = Bundle.main.url(forResource: defaultModelName, withExtension: "mlpackage") {
+            modelURL = url
+        } else if let url = Bundle.main.url(forResource: defaultModelName, withExtension: "mlmodelc") {
+            modelURL = url
+        } else if let url = Bundle.main.url(forResource: defaultModelName, withExtension: "mlmodel") {
+            modelURL = url
+        }
+        
+        guard let url = modelURL else {
+            print("Bundled model '\(defaultModelName)' not found in app bundle - user will need to upload a model")
+            return
+        }
+        
+        // Determine file extension for fileName
+        let ext = url.pathExtension.isEmpty ? "mlpackage" : url.pathExtension
+        var info = ModelInfo(
+            name: defaultModelName,
+            fileName: "\(defaultModelName).\(ext)",
+            source: .bundled
+        )
+        info.compilationStatus = .compiled
+        availableModels.append(info)
+        added.append(info)
+        print("Registered bundled model: \(defaultModelName)")
+        
+        // Set as default active model if none is active yet
+        if activeModel == nil {
+            setActiveModel(id: info.id)
+            print("Set default model: \(defaultModelName)")
+        }
+        
         if !added.isEmpty { saveModelRegistry() }
     }
     
@@ -216,18 +236,36 @@ class ModelManager: ObservableObject {
                 saveModelRegistry()
             }
             
+            // Update progress: file copied/prepared
+            await MainActor.run {
+                compilationProgress = 0.2
+            }
+            
             // If we imported a raw .mlmodel, compile it now
             if (ext == "mlmodel" || ext == "mlpackage"), let local = localModelURL {
+                await MainActor.run {
+                    compilationProgress = 0.3
+                }
+                
                 let tempCompiledURL = try await MLModel.compileModel(at: local) { [weak self] progress in
-                    DispatchQueue.main.async { self?.compilationProgress = progress }
+                    Task { @MainActor in
+                        // Map compile progress (0.0-1.0) to overall progress (0.3-0.9)
+                        self?.compilationProgress = 0.3 + (progress * 0.6)
+                    }
                 }
                 print("DEBUG: Compiled to temp location: \(tempCompiledURL.path)")
+                
+                await MainActor.run {
+                    compilationProgress = 0.9
+                }
+                
                 // Validate compiled
                 do {
                     let metadata = try MLModel.validateModel(at: tempCompiledURL)
                     guard metadata.isCompatible else { throw ModelError.incompatibleModel("Model format not compatible with app requirements") }
                     print("DEBUG: Model validation passed")
                 } catch { print("DEBUG: Model validation warning: \(error.localizedDescription)") }
+                
                 // Move compiled to uploads dir
                 finalCompiledURL = try ModelFileUtilities.replaceCompiledModel(
                     compiledURL: tempCompiledURL,
@@ -235,6 +273,10 @@ class ModelManager: ObservableObject {
                 )
                 print("DEBUG: Final compiled location: \(finalCompiledURL!.path)")
             } else if let compiled = finalCompiledURL {
+                await MainActor.run {
+                    compilationProgress = 0.5
+                }
+                
                 // Validate mlpackage/mlmodelc directly
                 do {
                     let metadata = try MLModel.validateModel(at: compiled)

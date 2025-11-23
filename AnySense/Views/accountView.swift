@@ -215,41 +215,6 @@ struct SettingsView : View{
                         }
                     }
                 }
-                
-                // MARK: - Cube Visualization Section
-                Section(header: Text("CUBE VISUALIZATION")) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Visualization Status")
-                            .font(.body)
-                            .foregroundColor(.primary)
-                        
-                        HStack {
-                            Text("Status:")
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                            Spacer()
-                            Text(arViewModel.arVisualizationManager.isVisualizationEnabled ? "Active" : "Inactive")
-                                .font(.caption)
-                                .foregroundColor(arViewModel.arVisualizationManager.isVisualizationEnabled ? .green : .orange)
-                        }
-                        
-                        HStack {
-                            Text("Action State:")
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                            Spacer()
-                            Text(arViewModel.arVisualizationManager.actionState.displayName)
-                                .font(.caption)
-                                .foregroundColor(arViewModel.arVisualizationManager.actionState == .waiting ? .yellow : .green)
-                        }
-                        
-                        Text("Shows blue cube (current) and green cube (target) for action guidance")
-                            .font(.caption2)
-                            .foregroundColor(.gray)
-                            .padding(.top, 4)
-                    }
-                    .padding(.vertical, 5)
-                }
             }
             .scrollContentBackground(.hidden)
         }

@@ -36,7 +36,6 @@ struct ReadView : View{
             let arViewWidth = min(arViewHeight / 1.33, screenWidth)
             let arViewPadding = 0.2 * arViewHeight
             let buttonSize: CGFloat = min(screenWidth * 0.3, 100)
-//            let buttonPadding: CGFloat =
             let btBarHeight: CGFloat = 25.0
             let gridSize = appStatus.gridProjectionTrigger.rawValue
              
@@ -103,46 +102,25 @@ struct ReadView : View{
                             }
                             
                             // Action State Display (cube visualization status)
-                            if arViewModel.arVisualizationManager.isVisualizationEnabled {
-                                HStack(spacing: 4) {
-                                    Text("Next action:")
-                                        .font(.caption)
-                                        .foregroundColor(.white)
-                                    Text(arViewModel.arVisualizationManager.actionState.displayName)
-                                        .font(.caption)
-                                        .bold()
-                                        .foregroundColor(arViewModel.arVisualizationManager.actionState == .waiting ? .yellow : .green)
-                                }
-                                .padding(8)
-                                .background(Color.black.opacity(0.6))
-                                .cornerRadius(8)
-                            }
+                            // if arViewModel.arVisualizationManager.isVisualizationEnabled {
+                            //     HStack(spacing: 4) {
+                            //         Text("Next action:")
+                            //             .font(.caption)
+                            //             .foregroundColor(.white)
+                            //         Text(arViewModel.arVisualizationManager.actionState.displayName)
+                            //             .font(.caption)
+                            //             .bold()
+                            //             .foregroundColor(arViewModel.arVisualizationManager.actionState == .waiting ? .yellow : .green)
+                            //     }
+                            //     .padding(8)
+                            //     .background(Color.black.opacity(0.6))
+                            //     .cornerRadius(8)
+                            // }
                             
                         }
                         Spacer()
                     }
                     Spacer()
-                    // AR Visualization Status Overlay
-                    // HStack {
-                    //                             VStack(alignment: .leading, spacing: 4) {
-                    //     if arViewModel.arVisualizationManager.isVisualizationEnabled {
-                    //         Text("Movement Tracking: ON")
-                    //             .font(.caption)
-                    //             .foregroundColor(.green)
-                    //         Text("Max Arrows: \(arViewModel.arVisualizationManager.maxArrows)")
-                    //             .font(.caption2)
-                    //             .foregroundColor(.secondary)
-                    //     } else {
-                    //         Text("Movement Tracking: OFF")
-                    //             .font(.caption)
-                    //             .foregroundColor(.red)
-                    //     }
-                    // }
-                    //     .padding(8)
-                    //     .background(Color.black.opacity(0.6))
-                    //     .cornerRadius(8)
-                    //     Spacer()
-                    // }
                     .padding(.bottom, 10)
                 }
                 .frame(width: arViewWidth, height: arViewHeight)

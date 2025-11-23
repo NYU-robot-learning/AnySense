@@ -62,9 +62,9 @@ class USBManager {
             listener?.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
-                    break
+                    print("USB listener ready")
                 case .failed(let error):
-                    break
+                    print("USB listener failed: \(error)")
                 default:
                     break
                 }

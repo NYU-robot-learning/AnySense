@@ -142,17 +142,14 @@ struct ModelMetadata {
     // MARK: - Dynamic helpers used by MLInferenceManager
     enum ModelType {
         case pointConditioned
-        case standard
+        
         var displayName: String {
-            switch self {
-            case .pointConditioned: return "Point-Conditioned"
-            case .standard: return "Standard"
-            }
+            return "Point-Conditioned"
         }
     }
     
     var modelType: ModelType {
-        return requiresGoalPoint ? .pointConditioned : .standard
+        return .pointConditioned
     }
     
     var temporalFrames: Int {
