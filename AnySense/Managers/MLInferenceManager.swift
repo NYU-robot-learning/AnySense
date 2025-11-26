@@ -5,6 +5,9 @@
 //  Created by Krish on 2025/2/1.
 //
 
+// @TODO: CHECK COREML MODEL PREDICTIONS AND COMPARE.
+// @TODO: CHECK FRAME BUFFERING IN USB STREAMING MODE ON
+
 import Foundation
 import ImageIO
 import CoreML
@@ -558,6 +561,15 @@ class MLInferenceManager: ObservableObject {
         print("[MLInference] Proximity reached - inference will trigger with next frame (firstInference: \(hasRunFirstInference))")
     }
     
+    // MARK: - Frequency-based Inference Helper
+    private func shouldRunBasedOnFrequency(_ timestamp: CFTimeInterval) -> Bool {
+        let interval = inferenceFrequency.interval
+        if interval == 0.0 {
+            return true // High frequency - every frame
+        }
+        return (timestamp - lastInferenceTime) >= interval
+    }
+
     // MARK: - Inference Methods (Using existing frame processing patterns)
     func performInference(on pixelBuffer: CVPixelBuffer, arFrame: ARFrame?, timestamp: CFTimeInterval = CACurrentMediaTime()) {
         // Update device pose for visualization (optional)
@@ -589,29 +601,44 @@ class MLInferenceManager: ObservableObject {
             return
         }
 
-        // Trigger inference: first time or proximity reached
+        // Store current frame entry for buffering
+        guard let currentEntry = currentFrameEntry else {
+            print("ERROR: No current frame entry available")
+            return
+        }
+
         let isFirstInference = !hasRunFirstInference
-        let isProximityTriggered = proximityReached && !isInferencePending
-        let shouldRunInference = isFirstInference || isProximityTriggered
+        let shouldRunInference: Bool
+
+        if isUSBStreamingActive {
+            // USB ON: Continuously add frames to buffer (rolling 3-frame window)
+            frameBuffer.append(currentEntry)
+            if frameBuffer.count > maxBufferSize {
+                frameBuffer.removeFirst()
+            }
+            print("[MLInference] USB Mode: Frame added to rolling buffer (\(frameBuffer.count)/\(maxBufferSize))")
+
+            // Run inference based on frequency setting or first inference
+            shouldRunInference = isFirstInference || shouldRunBasedOnFrequency(timestamp)
+        } else {
+            // USB OFF: Proximity-triggered buffering for recording mode
+            let isProximityTriggered = proximityReached && !isInferencePending
+            shouldRunInference = isFirstInference || isProximityTriggered
+
+            guard shouldRunInference else {
+                return // Don't add to buffer unless inference is triggered
+            }
+
+            frameBuffer.append(currentEntry)
+            if frameBuffer.count > maxBufferSize {
+                frameBuffer.removeFirst(frameBuffer.count - maxBufferSize)
+            }
+            print("[MLInference] Recording Mode: Action frame stored (\(frameBuffer.count) action trigger frames)")
+        }
 
         guard shouldRunInference else {
             return
         }
-
-        // Store current frame as an action trigger frame
-        guard let currentEntry = currentFrameEntry else {
-            print("ERROR: No current frame entry available for action trigger")
-            return
-        }
-
-        frameBuffer.append(currentEntry)
-
-        // Maintain buffer of last 3 action trigger frames
-        if frameBuffer.count > maxBufferSize {
-            frameBuffer.removeFirst(frameBuffer.count - maxBufferSize)
-        }
-
-        print("[MLInference] Action frame stored - buffer now contains \(frameBuffer.count) action trigger frames")
 
         // Temporal models pad with repeated frames if needed
         
@@ -656,6 +683,7 @@ class MLInferenceManager: ObservableObject {
                     // Reset pending flag and mark first inference complete
                     DispatchQueue.main.async {
                         self.isInferencePending = false
+                        self.lastInferenceTime = CACurrentMediaTime() // Update for frequency tracking
                         if !self.hasRunFirstInference {
                             self.hasRunFirstInference = true
                             print("[MLInference] First inference complete - target cube should now be visible")
@@ -1078,8 +1106,8 @@ class MLInferenceManager: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             self?.latestResult = result
             
-            // Ensure visualization is ready and feed pose
-            if let arManager = self?.arVisualizationManager, jointPositions.count >= 6 {
+            // Only enable visualization when NOT in USB streaming mode (recording mode only)
+            if let arManager = self?.arVisualizationManager, jointPositions.count >= 6, !self?.isUSBStreamingActive {
                 arManager.ensureVisualizationReady()
                 arManager.updatePoseFromMLOutput(jointPositions, timestamp: self?.lastInferenceTime ?? CACurrentMediaTime())
             }
@@ -1147,23 +1175,29 @@ class MLInferenceManager: ObservableObject {
             return
         }
         
-        // Store current frame as action trigger frame
+        // Store current frame for manual trigger
         guard let currentEntry = currentFrameEntry else {
             print("[MLInference] Cannot trigger manually - no current frame available")
             return
         }
 
-        frameBuffer.append(currentEntry)
-
-        // Maintain buffer of last 3 action trigger frames
-        if frameBuffer.count > maxBufferSize {
-            frameBuffer.removeFirst(frameBuffer.count - maxBufferSize)
+        // Add frame to buffer following same logic as automatic inference
+        if isUSBStreamingActive {
+            frameBuffer.append(currentEntry)
+            if frameBuffer.count > maxBufferSize {
+                frameBuffer.removeFirst()
+            }
+            print("[MLInference] Manual trigger - USB mode: Frame added to rolling buffer (\(frameBuffer.count))")
+        } else {
+            frameBuffer.append(currentEntry)
+            if frameBuffer.count > maxBufferSize {
+                frameBuffer.removeFirst(frameBuffer.count - maxBufferSize)
+            }
+            print("[MLInference] Manual trigger - Recording mode: Action frame stored (\(frameBuffer.count))")
         }
 
         // Mark inference as pending
         isInferencePending = true
-
-        print("[MLInference] Manual trigger - action frame stored, running inference with buffered action frames (\(frameBuffer.count))")
         
         // Prepare input using buffered frames
         let modelInput: MLFeatureProvider
@@ -1192,6 +1226,7 @@ class MLInferenceManager: ObservableObject {
                     // Reset pending flag and mark first inference complete
                     DispatchQueue.main.async {
                         self.isInferencePending = false
+                        self.lastInferenceTime = CACurrentMediaTime() // Update for frequency tracking
                         if !self.hasRunFirstInference {
                             self.hasRunFirstInference = true
                             print("[MLInference] First inference complete (manual) - target cube should now be visible")
