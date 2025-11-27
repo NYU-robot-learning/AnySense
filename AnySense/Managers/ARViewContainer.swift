@@ -288,13 +288,8 @@ class ARViewModel: ObservableObject{
                 self.goalTapModeEnabled = false
                 return
             }
-            // No worldPoint provided (no raycast hit) — ignore tap
         }
     }
-    
-
-
-    
     
     func getBLEManagerInstance() -> BluetoothManager{
         return bluetoothManager!;

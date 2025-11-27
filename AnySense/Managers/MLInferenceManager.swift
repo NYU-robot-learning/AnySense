@@ -1107,7 +1107,7 @@ class MLInferenceManager: ObservableObject {
             self?.latestResult = result
             
             // Only enable visualization when NOT in USB streaming mode (recording mode only)
-            if let arManager = self?.arVisualizationManager, jointPositions.count >= 6, !self?.isUSBStreamingActive {
+            if let arManager = self?.arVisualizationManager, jointPositions.count >= 6, self?.isUSBStreamingActive != true {
                 arManager.ensureVisualizationReady()
                 arManager.updatePoseFromMLOutput(jointPositions, timestamp: self?.lastInferenceTime ?? CACurrentMediaTime())
             }

@@ -6,7 +6,7 @@ struct ActionTransformUtils {
         case eulerXYZ   // rx, ry, rz (radians)
         case axisAngle  // rotation vector (axis * angle)
     }
-    // Server-defined transforms (record3d → personal camera) and +90° about Z
+    // arkit camera frame to labels.json frame
     private static let P: simd_float4x4 = {
         let c0 = SIMD4<Float>(-1,  0,  0, 0)
         let c1 = SIMD4<Float>( 0,  0, -1, 0)
@@ -15,6 +15,7 @@ struct ActionTransformUtils {
         return simd_float4x4(columns: (c0, c1, c2, c3))
     }()
     
+    // labels.json frame to robot frame
     private static let Z90: simd_float4x4 = {
         let c0 = SIMD4<Float>( 0,  1, 0, 0)
         let c1 = SIMD4<Float>(-1,  0, 0, 0)
