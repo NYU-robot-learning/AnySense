@@ -81,7 +81,12 @@ class ModelManager: ObservableObject {
             activeModel = nil
         }
         if activeModel == nil {
-            if let next = availableModels.first, getModelURL(for: next) != nil {
+            // Prioritize any bundled model, then fallback to any available model
+            let preferredModel = availableModels.first { model in
+                model.source == .bundled && getModelURL(for: model) != nil
+            } ?? availableModels.first { getModelURL(for: $0) != nil }
+
+            if let next = preferredModel {
                 // Directly set without dispatching to avoid race during init
                 for i in availableModels.indices { availableModels[i].isActive = availableModels[i].id == next.id }
                 activeModel = next
@@ -107,8 +112,12 @@ class ModelManager: ObservableObject {
     
     // MARK: - Bundled Model Setup
     private func setupBundledModel() {
-        // Register the default bundled model if present
-        let defaultModelName = "sam2-jitter"  // Default bundled model
+        // Find and register any bundled model dynamically
+        let bundledModelNames = findBundledModelNames()
+        guard let defaultModelName = bundledModelNames.first else {
+            print("No bundled CoreML models found - user will need to upload a model")
+            return
+        }
         var added: [ModelInfo] = []
         
         let alreadyExists = availableModels.contains { $0.source == .bundled && $0.name == defaultModelName }
@@ -121,18 +130,10 @@ class ModelManager: ObservableObject {
             return
         }
         
-        // Check if the resource exists in the bundle (try .mlpackage first, then .mlmodelc, then .mlmodel)
-        var modelURL: URL?
-        if let url = Bundle.main.url(forResource: defaultModelName, withExtension: "mlpackage") {
-            modelURL = url
-        } else if let url = Bundle.main.url(forResource: defaultModelName, withExtension: "mlmodelc") {
-            modelURL = url
-        } else if let url = Bundle.main.url(forResource: defaultModelName, withExtension: "mlmodel") {
-            modelURL = url
-        }
-        
-        guard let url = modelURL else {
-            print("Bundled model '\(defaultModelName)' not found in app bundle - user will need to upload a model")
+        // Find the model URL using existing logic
+        let tempModelInfo = ModelInfo(name: defaultModelName, fileName: "", source: .bundled)
+        guard let url = getModelURL(for: tempModelInfo) else {
+            print("Bundled model '\(defaultModelName)' not found in app bundle")
             return
         }
         
@@ -152,9 +153,24 @@ class ModelManager: ObservableObject {
         if activeModel == nil {
             setActiveModel(id: info.id)
             print("Set default model: \(defaultModelName)")
+        } else {
+            print("Active model already exists: \(activeModel?.name ?? "Unknown")")
         }
         
         if !added.isEmpty { saveModelRegistry() }
+    }
+
+    private func findBundledModelNames() -> [String] {
+        let extensions = ["mlpackage", "mlmodelc", "mlmodel"]
+        var modelNames: [String] = []
+
+        for ext in extensions {
+            if let urls = Bundle.main.urls(forResourcesWithExtension: ext, subdirectory: nil) {
+                modelNames.append(contentsOf: urls.map { $0.deletingPathExtension().lastPathComponent })
+            }
+        }
+
+        return Array(Set(modelNames)) // Remove duplicates
     }
     
     // MARK: - Model Upload and Compilation
@@ -378,11 +394,12 @@ class ModelManager: ObservableObject {
     func getModelURL(for modelInfo: ModelInfo) -> URL? {
         switch modelInfo.source {
         case .bundled:
-            // Try to get from bundle first
-            if let url = Bundle.main.url(forResource: modelInfo.name, withExtension: "mlmodelc") ??
-                       Bundle.main.url(forResource: modelInfo.name, withExtension: "mlpackage") ??
-                       Bundle.main.url(forResource: modelInfo.name, withExtension: "mlmodel") {
-                return url
+            // Use dynamic discovery for bundled models
+            let extensions = ["mlmodelc", "mlpackage", "mlmodel"]
+            for ext in extensions {
+                if let url = Bundle.main.url(forResource: modelInfo.name, withExtension: ext) {
+                    return url
+                }
             }
             return nil
             

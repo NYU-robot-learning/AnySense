@@ -5,9 +5,6 @@
 //  Created by Krish on 2025/2/1.
 //
 
-// @TODO: CHECK COREML MODEL PREDICTIONS AND COMPARE.
-// @TODO: CHECK FRAME BUFFERING IN USB STREAMING MODE ON
-
 import Foundation
 import ImageIO
 import CoreML

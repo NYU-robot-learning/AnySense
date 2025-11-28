@@ -35,7 +35,7 @@ struct ReadView : View{
             let arViewHeight = min(screenWidth * 1.33, 0.75 * screenHeight)
             let arViewWidth = min(arViewHeight / 1.33, screenWidth)
             let arViewPadding = 0.2 * arViewHeight
-            let buttonSize: CGFloat = min(screenWidth * 0.3, 100)
+            let buttonSize: CGFloat = min(screenWidth * 0.25, 80)
             let btBarHeight: CGFloat = 25.0
             let gridSize = appStatus.gridProjectionTrigger.rawValue
              
@@ -59,26 +59,55 @@ struct ReadView : View{
                             .scaledToFit()
                             .allowsHitTesting(false)
                     }
+
+                    // Instruction text when USB streaming is off and no gripper overlay
+                    if appStatus.rgbdVideoStreaming == .off &&
+                       (arViewModel.mlManager?.currentGripperOverlayImage == nil) {
+                        VStack {
+                            Spacer()
+                            Text("Follow the red cube")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Color.black.opacity(0.7))
+                                .cornerRadius(6)
+                                .shadow(color: .black.opacity(0.4), radius: 3, x: 0, y: 1)
+                            Spacer()
+                                .frame(height: 60)
+                        }
+                    }
                     
-                    // Manual Next Action Button 
+                    // Manual Next Action Button
                     if let mlManager = arViewModel.mlManager,
                        appStatus.mlInferenceEnabled && mlManager.isInferenceEnabled {
                         VStack {
                             HStack {
                                 Spacer()
-                                Button(action: {
-                                    mlManager.triggerInferenceManually()
-                                    UIImpactFeedbackGenerator(style: appStatus.hapticFeedbackLevel).impactOccurred()
-                                }) {
-                                    Image(systemName: "arrow.forward.circle.fill")
-                                        .font(.title2)
+                                VStack(spacing: 2) {
+                                    Button(action: {
+                                        mlManager.triggerInferenceManually()
+                                        UIImpactFeedbackGenerator(style: appStatus.hapticFeedbackLevel).impactOccurred()
+                                    }) {
+                                        Image(systemName: "arrow.forward.circle.fill")
+                                            .font(.title2)
+                                            .foregroundColor(.white)
+                                            .background(
+                                                Circle()
+                                                    .fill(Color.blue.opacity(0.8))
+                                                    .frame(width: 44, height: 44)
+                                            )
+                                            .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+                                    }
+
+                                    Text("Get next action")
+                                        .font(.system(size: 9, weight: .medium))
                                         .foregroundColor(.white)
-                                        .background(
-                                            Circle()
-                                                .fill(Color.blue.opacity(0.8))
-                                                .frame(width: 44, height: 44)
-                                        )
-                                        .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 1)
+                                        .background(Color.black.opacity(0.7))
+                                        .cornerRadius(3)
+                                        .shadow(color: .black.opacity(0.4), radius: 1, x: 0, y: 0.5)
                                 }
                                 .padding(.trailing, 12)
                                 .padding(.top, 12)
@@ -162,105 +191,110 @@ struct ReadView : View{
                     Text("\(arViewModel.demosCounter)")
                         .multilineTextAlignment(.leading)
                 }
-                .padding(.top, 0.55 * arViewHeight + 0.2 * screenHeight)
+                .padding(.top, 0.55 * arViewHeight + 0.2 * screenHeight + 20)
                 
                 VStack {
                     Spacer()
-                    HStack(spacing: 20) {
-                        // Delete (left)
-                        VStack(spacing: 4) {
-                            Button(action: {
-                                if(isRecordedOnce){
-                                    showingAlert = true
-                                    self.activeAlert = .first
-                                } else {
-                                    showingAlert = true
-                                    self.activeAlert = .second
-                                }
-                                UIImpactFeedbackGenerator(style: appStatus.hapticFeedbackLevel).impactOccurred()
-                            }){
-                                Image(systemName: "trash.circle.fill")
-                                    .resizable()
-                                    .frame(height: 36)
-                                    .frame(width: 36)
-                                    .foregroundStyle(.red)
-                            }
-                            Text("Delete")
-                                .foregroundStyle(.red)
-                                .font(.caption)
-                            Text("last record")
-                                .foregroundStyle(.red)
-                                .font(.caption)
-                        }
-                        
-                        Spacer()
-                        
-                        // Record button (center)
-                        ZStack{
-                            Image(systemName: "circle")
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(height: buttonSize)
-                                .frame(width: buttonSize)
-                                .foregroundStyle(.deviceWord)
-                                .multilineTextAlignment(.center)
-                            Button(action: {
-                                toggleRecording(mode:appStatus.rgbdVideoStreaming)
-                                isRecordedOnce = true
-                            }) {
-                                Image(systemName: isReading ? "square.fill" : "circle.fill")
+                    ZStack {
+                        // Center Button Layer (Record Button)
+                        HStack {
+                            Spacer()
+                            ZStack{
+                                Image(systemName: "circle")
                                     .resizable()
                                     .aspectRatio(contentMode: .fit)
-                                    .frame(height: buttonSize - 10)
-                                    .frame(width: buttonSize - 10)
+                                    .frame(height: buttonSize)
+                                    .frame(width: buttonSize)
+                                    .foregroundStyle(.deviceWord)
                                     .multilineTextAlignment(.center)
-                                    .foregroundStyle(Color.red)
+                                Button(action: {
+                                    toggleRecording(mode:appStatus.rgbdVideoStreaming)
+                                    isRecordedOnce = true
+                                }) {
+                                    Image(systemName: isReading ? "square.fill" : "circle.fill")
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fit)
+                                        .frame(height: buttonSize - 10)
+                                        .frame(width: buttonSize - 10)
+                                        .multilineTextAlignment(.center)
+                                        .foregroundStyle(Color.red)
+                                }
+                                .buttonStyle(scaleButtonStyle(isRecording: $isReading))
                             }
-                            .buttonStyle(scaleButtonStyle(isRecording: $isReading))
+                            Spacer()
                         }
-
-                        Spacer()
-
-                        // Right side: goal (if applicable), flashlight, and debug
+                        
+                        // Side Buttons Layer (Left & Right)
                         HStack(spacing: 20) {
-                            if (arViewModel.mlManager?.isPointConditioned ?? false) {
-                                VStack(spacing: 4) {
-                                    Button(action: {
-                                        let newValue = !arViewModel.goalTapModeEnabled
-                                        arViewModel.goalTapModeEnabled = newValue
-                                        if newValue {
-                                            // Clear existing goal so the next tap sets a fresh one
-                                            arViewModel.mlManager?.clearGoalPoint()
-                                            arViewModel.arVisualizationManager.clearTargetPose()
+                            // Left Side: Delete Button
+                            VStack(spacing: 4) {
+                                Button(action: {
+                                    if(isRecordedOnce){
+                                        showingAlert = true
+                                        self.activeAlert = .first
+                                    } else {
+                                        showingAlert = true
+                                        self.activeAlert = .second
+                                    }
+                                    UIImpactFeedbackGenerator(style: appStatus.hapticFeedbackLevel).impactOccurred()
+                                }){
+                                    Image(systemName: "trash.circle.fill")
+                                        .resizable()
+                                        .frame(height: 36)
+                                        .frame(width: 36)
+                                        .foregroundStyle(.red)
+                                }
+                                Text("Delete")
+                                    .foregroundStyle(.red)
+                                    .font(.caption)
+                                Text("last record")
+                                    .foregroundStyle(.red)
+                                    .font(.caption)
+                            }
+                            
+                            Spacer()
+                            
+                            // Right Side: Goal (conditional) + Flash
+                            HStack(spacing: 20) {
+                                if (arViewModel.mlManager?.isPointConditioned ?? false) {
+                                    VStack(spacing: 4) {
+                                        Button(action: {
+                                            let newValue = !arViewModel.goalTapModeEnabled
+                                            arViewModel.goalTapModeEnabled = newValue
+                                            if newValue {
+                                                // Clear existing goal so the next tap sets a fresh one
+                                                arViewModel.mlManager?.clearGoalPoint()
+                                                arViewModel.arVisualizationManager.clearTargetPose()
+                                            }
+                                        }) {
+                                            Image(systemName: arViewModel.goalTapModeEnabled ? "dot.circle.fill" : "target")
+                                                .resizable()
+                                                .frame(height: 36)
+                                                .frame(width: 36)
+                                                .foregroundStyle(arViewModel.goalTapModeEnabled ? Color.green : Color.blue)
                                         }
-                                    }) {
-                                        Image(systemName: arViewModel.goalTapModeEnabled ? "dot.circle.fill" : "target")
+                                        Text("Set goal")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                                
+                                VStack(spacing: 4) {
+                                    Button(action: toggleFlash) {
+                                        Image(systemName: openFlash ? "flashlight.off.circle.fill" : "flashlight.on.circle.fill")
                                             .resizable()
                                             .frame(height: 36)
                                             .frame(width: 36)
-                                            .foregroundStyle(arViewModel.goalTapModeEnabled ? Color.green : Color.blue)
                                     }
-                                    Text("Set goal")
+                                    Text(openFlash ? "Flash off" : "Flash on")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
                             }
-                            
-                            VStack(spacing: 4) {
-                                Button(action: toggleFlash) {
-                                    Image(systemName: openFlash ? "flashlight.off.circle.fill" : "flashlight.on.circle.fill")
-                                        .resizable()
-                                        .frame(height: 36)
-                                        .frame(width: 36)
-                                }
-                                Text(openFlash ? "Flash off" : "Flash on")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
                         }
+                        .padding(.horizontal, 20)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, arViewPadding / 4.0 - (buttonSize / 4.0))
+                    .padding(.bottom, max(20, arViewPadding / 4.0))
                 }
                 
             }
