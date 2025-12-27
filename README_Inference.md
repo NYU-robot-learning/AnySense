@@ -39,6 +39,10 @@ Model outputs must provide 7-element vectors representing 6-DOF manipulation act
 4) Press Record, and start aligning the blue arrow to the red arrow (that changes from red to green as you get closer). As you align, the next action is inferenced. If next action is far off target, you can retry inferencing using the "Get next action" button.
 5) Watch the AR pose updates and the gripper card/overlay for state and timing feedback.
 
+## USB Streaming for Robot Control
+
+The app can stream inference results directly to a robot via USB using the Record3D protocol. When USB streaming is enabled, the iPhone performs on-device inference and streams RGB frames, depth maps, camera poses, and predicted joint actions (7-DOF: 6-DOF manipulation + gripper state) to a connected computer. The robot server receives these action predictions in real-time and can execute them directly. To use this feature, enable "USB Streaming mode" in the Settings tab, connect your iOS device to your computer, and use the [anysense-streaming library](https://github.com/NYU-robot-learning/anysense-streaming/tree/dev/Krish) to receive the stream. The library provides Python and C++ bindings for receiving RGBD data, camera poses, and joint actions via `session.get_joint_actions()`.
+
 ## Implementation Notes: PyTorch to CoreML Conversion
 
 Converting PyTorch models (RUM/min-stretch) to CoreML requires refactoring the loss function's forward method from a training-style interface to an inference-only path (`images, goals` → actions), replacing negative dimension indices with explicit positive ones, using slice notation to preserve tensor dimensions, and adding explicit type casts for `F.one_hot()` operations. A `CoreMLBranchStyleWrapper` encapsulates the model and loss function to provide a clean inference path. The conversion notebook is available in the [min-stretch repository's coreml branch](https://github.com/NYU-robot-learning/min-stretch/tree/coreml).
