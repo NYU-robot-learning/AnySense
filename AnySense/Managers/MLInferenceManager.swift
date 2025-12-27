@@ -26,19 +26,31 @@ struct InferenceResult {
 }
 
 // MARK: - ML Inference Manager
+@MainActor
 class MLInferenceManager: ObservableObject {
     
     // MARK: - Published Properties
     @Published var latestResult: InferenceResult?
+    @Published var lastResult: InferenceResult?
+    @Published var isInferencePendingUI: Bool = false
+
+    @MainActor
+    func clearPendingState() {
+        isInferencePending = false
+        isInferencePendingUI = false
+    }
     @Published var isInferenceEnabled: Bool = false
     @Published var inferenceFrequency: InferenceFrequency = .medium
     @Published var currentGoalPoint: simd_float3?
     @Published var modelMetadata: ModelMetadata?
+    @Published var isModelLoading: Bool = false // Tracks loading and warm-up
     
     // MARK: - Private Properties
     private var model: MLModel?
     private var lastInferenceTime: CFTimeInterval = 0
     private var inferenceQueue = DispatchQueue(label: "MLInferenceQueue", qos: .userInitiated)
+    
+    // MARK: - Goal Point Management
     
     // MARK: - Goal Point Management
     
@@ -154,18 +166,6 @@ class MLInferenceManager: ObservableObject {
         }
     }
     
-    deinit {
-        // Ensure cleanup of resources
-        model = nil
-        latestResult = nil
-        cancellables.removeAll()
-
-        // Clean up vImage buffer
-        if let buffer = gripperOverlayBuffer {
-            free(buffer.data)
-        }
-    }
-
     // MARK: - Gripper Overlay Methods
     private func loadGripperOverlay() {
         // Load open gripper (default/original)
@@ -209,14 +209,14 @@ class MLInferenceManager: ObservableObject {
             currentGripperOverlayImage = nil
             return
         }
-        
+
         let isGripperClosed = currentGripperValue < 0.7
-        let imageToShow = isGripperClosed ? gripperClosedUIImage : gripperOpenUIImage
-        
+        let baseImage = isGripperClosed ? gripperClosedUIImage : gripperOpenUIImage
+
         print("DEBUG: Updating gripper overlay - value: \(String(format: "%.3f", currentGripperValue)), closed: \(isGripperClosed)")
-        
+
         // Update published property (automatically triggers objectWillChange)
-        currentGripperOverlayImage = imageToShow
+        currentGripperOverlayImage = baseImage
         print("DEBUG: Gripper overlay image updated: \(isGripperClosed ? "CLOSED" : "OPEN")")
     }
 
@@ -407,42 +407,54 @@ class MLInferenceManager: ObservableObject {
             modelMetadata = nil
             frameBuffer.removeAll()
             hasRunFirstInference = false
-            // maxBufferSize stays at 3
             return
         }
         
-        do {
-            let loadedModel = try modelManager.loadModel(for: activeModel)
-            model = loadedModel
+        // Indicate loading started
+        DispatchQueue.main.async {
+            self.isModelLoading = true
+        }
+        
+        // Perform loading on background thread to keep UI responsive
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
             
-            // Extract model metadata for type detection
-            let metadata = try ModelMetadata(from: loadedModel)
-            modelMetadata = metadata
-            
-            // Always maintain 3-frame rolling buffer (don't override with model's temporal requirement)
-            // maxBufferSize stays at 3
-            frameBuffer.removeAll()
-            hasRunFirstInference = false  // Reset for new model
-            
-            print("Model loaded: \(activeModel.name)")
-            print("  Temporal frames: \(metadata.temporalFrames)")
-            print("  Goal conditioning: \(metadata.requiresGoalPoint)")
-            print("  Buffer size: \(maxBufferSize)")
-            
-            // 224x224 input for all models
-            modelInputSize = CGSize(width: 224, height: 224)
-            
-            // Initialize shared pixel buffer if needed
-            initializeSharedBuffers()
-            
-            // Force 3D goal conditioning
-            goalDimension = 3
-        } catch {
-            model = nil
-            modelMetadata = nil
-            frameBuffer.removeAll()
-            hasRunFirstInference = false
-            // maxBufferSize stays at 3
+            do {
+                let loadedModel = try self.modelManager.loadModel(for: activeModel)
+                
+                // Extract model metadata for type detection
+                let metadata = try ModelMetadata(from: loadedModel)
+                
+                DispatchQueue.main.async {
+                    self.model = loadedModel
+                    self.modelMetadata = metadata
+                    
+                    // Always maintain 3-frame rolling buffer
+                    self.frameBuffer.removeAll()
+                    self.hasRunFirstInference = false  // Reset for new model
+                    
+                    print("Model loaded: \(activeModel.name)")
+                    print("  Temporal frames: \(metadata.temporalFrames)")
+                    print("  Goal conditioning: \(metadata.requiresGoalPoint)")
+                    print("  Buffer size: \(self.maxBufferSize)")
+                    
+                    self.modelInputSize = CGSize(width: 224, height: 224)
+                    self.initializeSharedBuffers()
+                    self.goalDimension = 3
+                    
+                    // Mark loading as complete
+                    self.isModelLoading = false
+                }
+            } catch {
+                print("Error loading model: \(error)")
+                DispatchQueue.main.async {
+                    self.model = nil
+                    self.modelMetadata = nil
+                    self.frameBuffer.removeAll()
+                    self.hasRunFirstInference = false
+                    self.isModelLoading = false
+                }
+            }
         }
     }
     
@@ -647,6 +659,7 @@ class MLInferenceManager: ObservableObject {
         
         // Mark inference as pending
         isInferencePending = true
+        isInferencePendingUI = true
         proximityReached = false  // Reset proximity flag
         
         if debugLoggingEnabled {
@@ -660,6 +673,7 @@ class MLInferenceManager: ObservableObject {
         } catch {
             print("ERROR: Failed to prepare model input: \(error)")
             isInferencePending = false
+            isInferencePendingUI = false
             return
         }
         
@@ -680,6 +694,7 @@ class MLInferenceManager: ObservableObject {
                     // Reset pending flag and mark first inference complete
                     DispatchQueue.main.async {
                         self.isInferencePending = false
+                        self.isInferencePendingUI = false
                         self.lastInferenceTime = CACurrentMediaTime() // Update for frequency tracking
                         if !self.hasRunFirstInference {
                             self.hasRunFirstInference = true
@@ -690,6 +705,7 @@ class MLInferenceManager: ObservableObject {
                     print("ERROR: Model inference failed: \(error)")
                     DispatchQueue.main.async {
                         self.isInferencePending = false
+                        self.isInferencePendingUI = false
                     }
                 }
             }
@@ -1102,6 +1118,7 @@ class MLInferenceManager: ObservableObject {
         // Update UI on main thread
         DispatchQueue.main.async { [weak self] in
             self?.latestResult = result
+            self?.lastResult = result
             
             // Only enable visualization when NOT in USB streaming mode (recording mode only)
             if let arManager = self?.arVisualizationManager, jointPositions.count >= 6, self?.isUSBStreamingActive != true {
@@ -1128,18 +1145,32 @@ class MLInferenceManager: ObservableObject {
         if enableTransformDebug {
             print("Transform debug enabled (\(rotationUnit))")
         }
+
+        // Update gripper overlay to show inference status
+        Task { @MainActor in
+            updateGripperOverlayDisplay()
+        }
     }
-    
+
     func disableInference() {
         isInferenceEnabled = false
         latestResult = nil
+        // Preserve lastResult so UI can continue showing the previous inference output while idle
+        isInferencePending = false
+        isInferencePendingUI = false
         print("Inference disabled")
+
+        // Update gripper overlay to hide inference status
+        Task { @MainActor in
+            updateGripperOverlayDisplay()
+        }
     }
     
     func resetInferenceState() {
         hasRunFirstInference = false
         proximityReached = false
         isInferencePending = false
+        isInferencePendingUI = false
         frameBuffer.removeAll()
         currentFrameEntry = nil
         goalFrameCount = 0  // Reset goal frame count

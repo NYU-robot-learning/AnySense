@@ -43,7 +43,6 @@ class ModelManager: ObservableObject {
         get { activeModel?.id }
         set {
             if let newID = newValue {
-                print("DEBUG: activeModelID setter called with: \(newID)")
                 setActiveModel(id: newID)
             }
         }

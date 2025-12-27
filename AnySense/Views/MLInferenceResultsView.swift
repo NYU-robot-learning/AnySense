@@ -12,14 +12,26 @@ struct MLInferenceResultsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Gripper State")
+            Text("Inference State")
                 .foregroundColor(.white)
                 .font(.subheadline)
                 .fontWeight(.semibold)
 
-            if let result = mlManager.latestResult {
+            if mlManager.isInferencePendingUI {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+                        .scaleEffect(0.8)
+                    Text(mlManager.latestResult == nil && mlManager.lastResult == nil ? "Analyzing..." : "Updating...")
+                        .foregroundColor(.white.opacity(0.8))
+                        .font(.caption)
+                }
+            }
+
+            if let result = mlManager.latestResult ?? mlManager.lastResult {
                 GripperBlock(result: result)
-            } else {
+            } else if !mlManager.isInferencePendingUI {
                 Text("Analyzing...")
                     .foregroundColor(.white.opacity(0.7))
                     .font(.caption)

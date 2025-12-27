@@ -15,35 +15,113 @@ struct MainPage: View {
     // Start the default page be the read page
     @State private var selection = 1
     
-    var body: some View {
-        TabView(selection: $selection){
-            Group{
-                PeripheralView(arViewModel: arViewModel, bluetoothManager: arViewModel.getBLEManagerInstance())
-                    .tabItem {
-                        Label("ble-device", systemImage: "iphone.gen1.radiowaves.left.and.right")
-                }
-                    .tag(0)
-                
-                ReadView(arViewModel: arViewModel)
-                    .tabItem {
-                        Label("read", systemImage: "dot.scope")
-                }
-                    .tag(1)
-                
-                
-                SettingsView(arViewModel: arViewModel, modelManager: modelManager)
-                    .tabItem {
-                        Label("settings", systemImage: "gear")
-            
-                    }
-                    .tag(2)
-            }
-                .toolbarBackground(.tabBackground, for: .tabBar)
-                .toolbarBackground(.visible, for: .tabBar)
-        }
-        .accentColor(.accentColor)
+    // Track if AR tabs are active for showing/hiding the shared AR view
+    private var isARTabActive: Bool {
+        selection == 1 || selection == 2
     }
     
+    var body: some View {
+        ZStack {
+            // MARK: - Background layer (AR for tabs 1,2 or solid color for others)
+            if isARTabActive {
+                SharedARViewContainer(arViewModel: arViewModel)
+                    .ignoresSafeArea()
+            } else {
+                Color.customizedBackground
+                    .ignoresSafeArea()
+            }
+            
+            // MARK: - Content layer (overlays only, no backgrounds)
+            VStack(spacing: 0) {
+                // Main content area
+                Group {
+                    switch selection {
+                    case 0:
+                        PeripheralView(arViewModel: arViewModel, bluetoothManager: arViewModel.getBLEManagerInstance())
+                    case 1:
+                        ReadViewOverlay(arViewModel: arViewModel)
+                    case 2:
+                        InferenceViewOverlay(arViewModel: arViewModel)
+                    case 3:
+                        SettingsView(arViewModel: arViewModel, modelManager: modelManager)
+                    default:
+                        ReadViewOverlay(arViewModel: arViewModel)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                
+                // Custom tab bar at bottom
+                HStack {
+                    TabBarButton(icon: "iphone.gen1.radiowaves.left.and.right", label: "ble-device", tag: 0, selection: $selection)
+                    TabBarButton(icon: "record.circle", label: "record", tag: 1, selection: $selection)
+                    TabBarButton(icon: "brain.head.profile", label: "inference", tag: 2, selection: $selection)
+                    TabBarButton(icon: "gear", label: "settings", tag: 3, selection: $selection)
+                }
+                .padding(.vertical, 8)
+                .background(Color.tabBackground)
+            }
+        }
+        .onAppear {
+            // Start AR session on initial load
+            if isARTabActive {
+                arViewModel.startARSessionIfNeeded()
+                print("App launched - starting AR session for default tab \(selection)")
+            }
+        }
+        .onChange(of: selection) { newTab in
+            let isARTab = (newTab == 1 || newTab == 2)
+            
+            if isARTab {
+                // Switching to AR tab - resume session without resetting tracking
+                arViewModel.resumeARSession()
+                print("Switched to AR tab \(newTab) - resuming AR session")
+            } else {
+                // Switching away from AR tabs - pause session
+                arViewModel.pauseARSession()
+                print("Switched to non-AR tab \(newTab) - pausing AR session")
+            }
+        }
+        .onChange(of: phase) { newPhase in
+            switch newPhase {
+            case .background:
+                arViewModel.stopAllActivities()
+                arViewModel.pauseARSession()
+                print("App backgrounded - all activities stopped")
+            case .active:
+                if isARTabActive {
+                    arViewModel.resumeARSession()
+                    print("App active - resuming AR session for tab \(selection)")
+                }
+            case .inactive:
+                print("App inactive")
+            @unknown default:
+                break
+            }
+        }
+    }
+}
+
+// MARK: - Custom Tab Bar Button
+struct TabBarButton: View {
+    let icon: String
+    let label: String
+    let tag: Int
+    @Binding var selection: Int
+    
+    var body: some View {
+        Button(action: {
+            selection = tag
+        }) {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 20))
+                Text(label)
+                    .font(.caption2)
+            }
+            .foregroundColor(selection == tag ? .accentColor : .gray)
+            .frame(maxWidth: .infinity)
+        }
+    }
 }
 
 #Preview {

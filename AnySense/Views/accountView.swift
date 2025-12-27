@@ -112,7 +112,7 @@ struct SettingsView : View{
                     .sheet(isPresented: $showingFilePicker) {
                         ModelImporter(onPickDocument: handleModelUpload)
                     }
-                    
+
                     // Compilation Progress
                     if modelManager.isCompiling {
                         HStack {
@@ -130,11 +130,11 @@ struct SettingsView : View{
                         }
                         .padding(.vertical, 5)
                     }
-                    
+
                     // Model Selection (when compiled models available)
                     if !modelManager.compiledModels.isEmpty {
                         Picker("Select Model", selection: Binding<UUID?>(
-                            get: { 
+                            get: {
                                 let activeID = modelManager.activeModelID
                                 // print("DEBUG: Picker get - activeModelID: \(String(describing: activeID))")
                                 return activeID
@@ -157,12 +157,13 @@ struct SettingsView : View{
                         .padding(.vertical, 5)
                         .id(modelManager.activeModelID?.uuidString ?? "none") // Force refresh when activeModel changes
                     }
-                    
-                    
-                    
-                    // Use Inference Toggle - Context Aware
+                }
+
+                // MARK: - Inference Settings Section
+                Section(header: Text("INFERENCE SETTINGS")) {
+                    // Enable AI Guidance Toggle - Context Aware
                     HStack {
-                        Text("Use Inference")
+                        Text("Enable AI Guidance")
                             .font(.body)
                             .foregroundColor(.primary)
                         Spacer()
@@ -170,16 +171,16 @@ struct SettingsView : View{
                             .disabled(!modelManager.hasAvailableModel)
                     }
                     .padding(.vertical, 5)
-                    
+
                     // Inference Frequency Slider
                     if let mlManager = arViewModel.mlManager {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Inference Frequency")
                                 .font(.body)
                                 .foregroundColor(.primary)
-                            
+
                             let sliderBinding = Binding<Double>(
-                                get: { 
+                                get: {
                                     Double(currentFrequencyIndex)
                                 },
                                 set: { newValue in
@@ -190,16 +191,16 @@ struct SettingsView : View{
                                     }
                                 }
                             )
-                            
-                            Slider(value: sliderBinding, 
-                                   in: 0...Double(inferenceOptions.count - 1), 
+
+                            Slider(value: sliderBinding,
+                                   in: 0...Double(inferenceOptions.count - 1),
                                    step: 1)
-                            
+
                             HStack {
                                 ForEach(0..<inferenceOptions.count, id: \.self) { index in
                                     let option = inferenceOptions[index]
                                     let isSelected = index == currentFrequencyIndex
-                                    
+
                                     Text(shortDisplayName(for: option))
                                         .font(.caption2)
                                         .fontWeight(isSelected ? .semibold : .regular)
@@ -213,6 +214,62 @@ struct SettingsView : View{
                             // Initialize with current frequency
                             currentFrequencyIndex = inferenceOptions.firstIndex(of: mlManager.inferenceFrequency) ?? 1
                         }
+                    }
+
+                    // Gripper Overlay Settings
+                    HStack {
+                        Text("Show Gripper Overlay")
+                            .font(.body)
+                            .foregroundColor(.primary)
+                        Spacer()
+                        Toggle("", isOn: $appStatus.showGripperOverlay)
+                    }
+                    .padding(.vertical, 5)
+
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Include in Model Input")
+                                .font(.body)
+                                .foregroundColor(.primary)
+                            Text("Feed gripper overlay to ML model")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+                        Spacer()
+                        Toggle("", isOn: $appStatus.enableGripperOverlayInModel)
+                    }
+                    .padding(.vertical, 5)
+
+                    // AR Visualization Settings
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("AR Visualization")
+                                .font(.body)
+                                .foregroundColor(.primary)
+                            Text("Show 3D arrows and targets")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+                        Spacer()
+                        Toggle("", isOn: $appStatus.arVisualizationEnabled)
+                    }
+                    .padding(.vertical, 5)
+
+                    // Visualization Frequency
+                    if appStatus.arVisualizationEnabled {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Visualization Frequency")
+                                .font(.body)
+                                .foregroundColor(.primary)
+
+                            Picker("Visualization Frequency", selection: $appStatus.visualizationFrequency) {
+                                ForEach(VisualizationFrequency.allCases, id: \.self) { frequency in
+                                    Text(frequency.displayName).tag(frequency)
+                                }
+                            }
+                            .pickerStyle(MenuPickerStyle())
+                        }
+                        .padding(.vertical, 5)
                     }
                 }
             }

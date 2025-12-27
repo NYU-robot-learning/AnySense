@@ -17,7 +17,6 @@ import UIKit
 import CoreImage.CIFilterBuiltins
 import Combine
 import Accelerate
-//import WebRTC
 
 struct RecordingFiles {
     let rgbFileName: URL
@@ -30,6 +29,13 @@ struct RecordingFiles {
     let tactileFile: URL
 }
 
+enum RecordingMode {
+    case none
+    case standardRecording
+    case mlInference
+    case usbStreaming
+}
+
 func createFile(fileURL: URL) throws {
         let success = FileManager.default.createFile(atPath: fileURL.path, contents: nil, attributes: nil)
         if !success {
@@ -37,116 +43,78 @@ func createFile(fileURL: URL) throws {
         }
 }
 
-struct ARViewContainer: UIViewRepresentable {
-    var session: ARSession
-    var arVisualizationManager: ARVisualizationManager
-    typealias UIViewType = ARView
+// MARK: - Shared AR View Container (hosts the single ARView from ARViewModel)
+struct SharedARViewContainer: UIViewRepresentable {
+    @ObservedObject var arViewModel: ARViewModel
     
     func makeUIView(context: Context) -> ARView {
-        // Initialize the ARView
-        let arView = ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
-        arView.session = session
-        // Expose real-world mesh as RealityKit entities and give them collision for raycasts
-        arView.environment.sceneUnderstanding.options = [.collision]
-        // COMMENT THIS OUT FOR PRODUCTION - shows mesh
-        // arView.debugOptions.insert(.showSceneUnderstanding)
-        
-        // Setup AR visualization with the created ARView
-        arVisualizationManager.setupVisualization(with: arView)
-        
-        // Add tap recognizer for goal setting (point-conditioned models)
-        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
-        arView.addGestureRecognizer(tap)
-        
-        return arView
+        print("SharedARViewContainer: returning shared ARView")
+        return arViewModel.getOrCreateSharedARView()
     }
+    
     func updateUIView(_ uiView: ARView, context: Context) {
-        if uiView.session !== session {
-            uiView.session = session
-        }
+        // ARView is managed by ARViewModel, no updates needed here
+    }
+}
+
+// MARK: - Tap Coordinator for Shared ARView
+class TapCoordinator: NSObject {
+    weak var arViewModel: ARViewModel?
+    
+    init(arViewModel: ARViewModel) {
+        self.arViewModel = arViewModel
+        super.init()
     }
     
-    // MARK: - Coordinator for gesture handling
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-    
-    class Coordinator: NSObject {
-        let parent: ARViewContainer
-        init(_ parent: ARViewContainer) { self.parent = parent }
-        
-        /// Raycast against Scene Understanding (LiDAR mesh) entities.
-        /// Returns the world-space point if the hit entity originates from real-world mesh data.
-        private func meshBackedHit(in arView: ARView, from location: CGPoint) -> SIMD3<Float>? {
-            guard let ray = arView.ray(through: location) else { return nil }
+    @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended, let arView = recognizer.view as? ARView else { return }
+        let location = recognizer.location(in: arView)
 
-            // Raycast the RealityKit scene — includes scene-understanding entities created from LiDAR mesh
-            let hits = arView.scene.raycast(origin: ray.origin, direction: ray.direction)
-
-            if let hit = hits.first(where: { $0.entity is HasSceneUnderstanding }) {
-                return hit.position
-            }
-            return nil
-        }
-
-        @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
-            guard recognizer.state == .ended, let arView = recognizer.view as? ARView else { return }
-            let location = recognizer.location(in: arView)
- 
-            // 1) (arView.scene.raycast) Try LiDAR-backed mesh raycast first
-            if let world = meshBackedHit(in: arView, from: location) {
-                var t = matrix_identity_float4x4
-                t.columns.3 = SIMD4<Float>(world.x, world.y, world.z, 1)
- 
-                let goalAnchor = ARAnchor(name: "goal", transform: t)
-                arView.session.add(anchor: goalAnchor)
- 
-                print("Using LiDAR mesh raycast for 3D point: \(world)")
- 
-                NotificationCenter.default.post(
-                    name: NSNotification.Name("ARViewTapForGoal"),
-                    object: nil,
-                    userInfo: [
-                        "worldPoint": world,
-                        "method": "meshRaycast",
-                        "location": location,
-                        "bounds": arView.bounds
-                    ]
-                )
-                return
-            }
- 
-            // 2) (arView.raycast) Fallback: ARKit plane/estimated-surface raycast
-            if let hit = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any).first {
-                let t = hit.worldTransform
-                let world = simd_float3(t.columns.3.x, t.columns.3.y, t.columns.3.z)
- 
-                let goalAnchor = ARAnchor(name: "goal", transform: t)
-                arView.session.add(anchor: goalAnchor)
- 
-                print("Using plane/estimated raycast fallback for 3D point: \(world)")
- 
-                NotificationCenter.default.post(
-                    name: NSNotification.Name("ARViewTapForGoal"),
-                    object: nil,
-                    userInfo: [
-                        "worldPoint": world,
-                        "method": "raycast",
-                        "location": location,
-                        "bounds": arView.bounds
-                    ]
-                )
-                return
-            }
- 
-            // 3) (no raycast) Final fallback: still notify with screen info (no hit yet)
+        // Try LiDAR-backed mesh raycast first
+        if let world = meshBackedHit(in: arView, from: location) {
+            var t = matrix_identity_float4x4
+            t.columns.3 = SIMD4<Float>(world.x, world.y, world.z, 1)
+            let goalAnchor = ARAnchor(name: "goal", transform: t)
+            arView.session.add(anchor: goalAnchor)
+            print("Using LiDAR mesh raycast for 3D point: \(world)")
             NotificationCenter.default.post(
                 name: NSNotification.Name("ARViewTapForGoal"),
                 object: nil,
-                userInfo: [
-                    "location": location,
-                    "bounds": arView.bounds
-                ]
+                userInfo: ["worldPoint": world, "method": "meshRaycast", "location": location, "bounds": arView.bounds]
             )
+            return
         }
+
+        // Fallback: ARKit plane/estimated-surface raycast
+        if let hit = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any).first {
+            let t = hit.worldTransform
+            let world = simd_float3(t.columns.3.x, t.columns.3.y, t.columns.3.z)
+            let goalAnchor = ARAnchor(name: "goal", transform: t)
+            arView.session.add(anchor: goalAnchor)
+            print("Using plane/estimated raycast fallback for 3D point: \(world)")
+            NotificationCenter.default.post(
+                name: NSNotification.Name("ARViewTapForGoal"),
+                object: nil,
+                userInfo: ["worldPoint": world, "method": "raycast", "location": location, "bounds": arView.bounds]
+            )
+            return
+        }
+
+        // Final fallback: notify with screen info only
+        NotificationCenter.default.post(
+            name: NSNotification.Name("ARViewTapForGoal"),
+            object: nil,
+            userInfo: ["location": location, "bounds": arView.bounds]
+        )
+    }
+    
+    private func meshBackedHit(in arView: ARView, from location: CGPoint) -> SIMD3<Float>? {
+        guard let ray = arView.ray(through: location) else { return nil }
+        let hits = arView.scene.raycast(origin: ray.origin, direction: ray.direction)
+        if let hit = hits.first(where: { $0.entity is HasSceneUnderstanding }) {
+            return hit.position
+        }
+        return nil
     }
 }
 
@@ -158,6 +126,10 @@ class DepthStatus: ObservableObject {
         isDepthAvailable = false
         showAlert = true
     }
+
+    public func dismissAlert() {
+        showAlert = false
+    }
 }
 
 class ARViewModel: ObservableObject{
@@ -168,14 +140,24 @@ class ARViewModel: ObservableObject{
     var session = ARSession()
     var audioSession = AVCaptureSession()
     var audioCaptureDelegate: AudioCaptureDelegate?
-    
+
     // ML Inference Manager - now optional and initialized later
     @Published var mlManager: MLInferenceManager?
-    
+
     // AR Visualization Manager for 3D pose visualization
-    @Published var arVisualizationManager = ARVisualizationManager()
+    @Published var arVisualizationManager: ARVisualizationManager
     @Published var goalTapModeEnabled: Bool = false
     @Published var isUSBStreamingActive: Bool = false
+    
+    // MARK: - Shared ARView (single instance for entire app lifecycle)
+    private var sharedARView: ARView?
+    private var hasSetupSharedARView = false
+
+    // MARK: - Centralized Recording State Management
+    @Published var isRecording: Bool = false
+    @Published var recordingMode: RecordingMode = .none
+    private var currentRecordingFiles: RecordingFiles?
+
 
 
     public var userFPS: Double?
@@ -240,7 +222,9 @@ class ARViewModel: ObservableObject{
     // Combine subscriptions for ML integration
     private var cancellables = Set<AnyCancellable>()
     
+    @MainActor
     init() {
+        self.arVisualizationManager = ARVisualizationManager()
         bluetoothManager = BluetoothManager()
         
         self.rgbAttributes = [
@@ -294,6 +278,86 @@ class ARViewModel: ObservableObject{
     func getBLEManagerInstance() -> BluetoothManager{
         return bluetoothManager!;
     }
+    
+    // MARK: - Shared ARView Management
+    @MainActor
+    func getOrCreateSharedARView() -> ARView {
+        if let existingView = sharedARView {
+            return existingView
+        }
+        
+        print("Creating shared ARView (one-time setup)")
+        
+        // Create the single ARView instance
+        let arView = ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
+        arView.session = session
+        
+        // Consistent rendering options
+        arView.renderOptions = [.disablePersonOcclusion, .disableDepthOfField, .disableMotionBlur]
+        
+        // Enable scene understanding for raycasts
+        arView.environment.sceneUnderstanding.options = [.collision]
+        
+        // Setup AR visualization
+        arVisualizationManager.setupVisualization(with: arView)
+        
+        // Add tap recognizer for goal setting
+        let coordinator = TapCoordinator(arViewModel: self)
+        let tap = UITapGestureRecognizer(target: coordinator, action: #selector(TapCoordinator.handleTap(_:)))
+        arView.addGestureRecognizer(tap)
+        // Store coordinator to prevent deallocation
+        objc_setAssociatedObject(arView, "tapCoordinator", coordinator, .OBJC_ASSOCIATION_RETAIN)
+        
+        sharedARView = arView
+        hasSetupSharedARView = true
+        
+        print("Shared ARView created and configured")
+        return arView
+    }
+    
+    // Resume AR session 
+    @MainActor
+    func resumeARSession() {
+        guard !isOpen else {
+            print("AR session already running")
+            return
+        }
+        
+        let status = AVCaptureDevice.authorizationStatus(for: .video)
+        guard status == .authorized else { return }
+        
+        let configuration = createARConfiguration()
+        session.run(configuration, options: [])
+        isOpen = true
+        
+        print("AR session resumed (tracking preserved)")
+    }
+    
+    // MARK: - Shared AR Configuration
+    private func createARConfiguration() -> ARWorldTrackingConfiguration {
+        let configuration = ARWorldTrackingConfiguration()
+        
+        for videoFormat in ARWorldTrackingConfiguration.supportedVideoFormats {
+            if videoFormat.captureDeviceType == .builtInWideAngleCamera {
+                configuration.videoFormat = videoFormat
+                break
+            }
+        }
+        
+        if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
+            configuration.frameSemantics.insert(.sceneDepth)
+        }
+        configuration.planeDetection = [.horizontal, .vertical]
+        if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
+            configuration.sceneReconstruction = .meshWithClassification
+        } else if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
+            configuration.sceneReconstruction = .mesh
+        }
+        configuration.environmentTexturing = .none
+        configuration.isAutoFocusEnabled = false
+        
+        return configuration
+    }
 
     
     private func setupAudioSession() {
@@ -311,30 +375,63 @@ class ARViewModel: ObservableObject{
     
     private func setupTransforms() {
         DispatchQueue.global(qos: .userInitiated).async {
-            while self.depthRetryCount < self.maxDepthRetries {
+            var attempts = 0
+            let maxAttempts = 50 // Max 500ms wait
+
+            while attempts < maxAttempts {
                 guard let currentFrame = self.session.currentFrame else {
-                    usleep(10000)
+                    attempts += 1
+                    usleep(10000) // 10ms
                     continue
                 }
-                let flipTransform = (self.orientation.isPortrait)
-                    ? CGAffineTransform(scaleX: -1, y: -1).translatedBy(x: -1, y: -1)
-                    : .identity
-                
+
+                let flipTransform = self.computeFlipTransform()
+
+                // Initialize RGB transform if needed
                 if self.combinedRGBTransform == nil {
                     self.initializeRGBTransform(frame: currentFrame, flipTransform: flipTransform)
+                    print("RGB transform initialized successfully")
                 }
-                
-                if !self.depthStatus.isDepthAvailable { break }
-                
-                        if self.combinedDepthTransform == nil {
-            if self.initializeDepthTransform(frame: currentFrame, flipTransform: flipTransform) {
-                break
+
+                // Try depth transform
+                if self.combinedDepthTransform == nil {
+                    if self.initializeDepthTransform(frame: currentFrame, flipTransform: flipTransform) {
+                        print("Depth transform initialized successfully")
+                    }
+                }
+
+                // Exit once we have RGB transform (depth is optional)
+                if self.combinedRGBTransform != nil {
+                    break
+                }
+
+                attempts += 1
+                usleep(10000)
+            }
+
+            if self.combinedRGBTransform == nil {
+                print("Note: RGB transform not yet initialized, will compute on-demand")
+            }
+            if self.combinedDepthTransform == nil {
+                print("Note: Depth transform not yet initialized, will compute on-demand")
             }
         }
-        
-        self.depthRetryCount += 1
-        usleep(10000)
     }
+    
+    func ensureTransformsReady() {
+        guard let currentFrame = session.currentFrame else { return }
+        
+        let flipTransform = computeFlipTransform()
+        
+        if combinedRGBTransform == nil {
+            initializeRGBTransform(frame: currentFrame, flipTransform: flipTransform)
+            print("RGB transform computed on-demand")
+        }
+        
+        if combinedDepthTransform == nil {
+            if initializeDepthTransform(frame: currentFrame, flipTransform: flipTransform) {
+                print("Depth transform computed on-demand")
+            }
         }
     }
     
@@ -369,7 +466,10 @@ class ARViewModel: ObservableObject{
         return true
     }
     
+    @MainActor
     func setupARSession() {
+        // Sync orientation with the current interface orientation before configuring transforms
+        refreshOrientationFromScene()
         self.startARSession()
         
         if(ifAudioEnable) {
@@ -379,74 +479,127 @@ class ARViewModel: ObservableObject{
         setupTransforms()
     }
 
+    @MainActor
     func startARSession() {
         let status = AVCaptureDevice.authorizationStatus(for: .video)
-            guard status == .authorized else {
-                return
-        }
-        // Create and configure the AR session configuration
-        let configuration = ARWorldTrackingConfiguration()
+        guard status == .authorized else { return }
         
-        // Loop through available video formats and select the wide-angle camera format
-        for videoFormat in ARWorldTrackingConfiguration.supportedVideoFormats {
-            if videoFormat.captureDeviceType == .builtInWideAngleCamera {
-                configuration.videoFormat = videoFormat
-                break
-            }
-        }
-        
-        // Set the session configuration properties
-        if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
-            configuration.frameSemantics.insert(.sceneDepth)
-        } else {
-            depthStatus.setUnavailable()
-        }
-        configuration.planeDetection = [.horizontal, .vertical]
-        if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
-            configuration.sceneReconstruction = .meshWithClassification
-        } else if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
-            configuration.sceneReconstruction = .mesh
-        }
-        configuration.environmentTexturing = .none
-        configuration.isAutoFocusEnabled = false
-        
-        // Run the session with the configuration
+        let configuration = createARConfiguration()
         session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
         isOpen = true
     }
+
+    private func refreshOrientationFromScene() {
+        // Keep a consistent transform between tabs; force portrait so Record and Inference align
+        orientation = .portrait
+    }
     
+    @MainActor
     func pauseARSession(){
         session.pause()
         isOpen = false
+        clearCachedTransforms()
     }
     
+    @MainActor
     func killARSession() {
         session.pause() // Pause before releasing resources
         session = ARSession() // Replace with a new ARSession
         isOpen = false
+        clearCachedTransforms()
     }
     
+    /// Clear cached transforms so they are recalculated on next session start
+    private func clearCachedTransforms() {
+        combinedRGBTransform = nil
+        combinedDepthTransform = nil
+    }
+    
+    /// Safely extract depth and confidence buffers from an AR frame
+    private func getDepthBuffers(from frame: ARFrame) -> (depth: CVPixelBuffer, confidence: CVPixelBuffer)? {
+        guard let depthBuffer = frame.sceneDepth?.depthMap,
+              let confidenceBuffer = frame.sceneDepth?.confidenceMap else {
+            return nil
+        }
+        return (depthBuffer, confidenceBuffer)
+    }
+    
+    /// Compute flip transform based on current orientation
+    private func computeFlipTransform() -> CGAffineTransform {
+        orientation.isPortrait
+            ? CGAffineTransform(scaleX: -1, y: -1).translatedBy(x: -1, y: -1)
+            : .identity
+    }
+
+    // MARK: - Safe Session Management
+    @MainActor
+    func startARSessionIfNeeded() {
+        guard !isOpen else {
+            print("AR session already running")
+            return
+        }
+
+        print("Starting AR session for ARViewContainer")
+        setupARSession()
+    }
+    
+    @MainActor
     func startUSBStreaming() {
+        // MARK: - State Validation Guards
+        guard !isUSBStreamingActive else {
+            print("USB Streaming already active - ignoring start request")
+            return
+        }
+
+        guard recordingMode == .none else {
+            print("Another recording mode active: \(recordingMode) - stopping first")
+            stopAllActivities()
+            return
+        }
+        
+        // Ensure transforms are computed before streaming
+        ensureTransformsReady()
+
+        // MARK: - Update Centralized State
+        recordingMode = .usbStreaming
+
         // Reset ML inference state for new streaming session
         mlManager?.resetInferenceState()
-        
+
         displayLink = CADisplayLink(target: self, selector: #selector(sendFrameUSB))
         displayLink?.preferredFrameRateRange = CAFrameRateRange(minimum: Float(self.userFPS!), maximum: Float(self.userFPS!), preferred: Float(self.userFPS!))
         displayLink?.add(to: .main, forMode: .common)
         isUSBStreamingActive = true
         mlManager?.setUSBStreamingState(isActive: true)
+
+        print("USB streaming started successfully")
     }
     
+    @MainActor
     func stopUSBStreaming() {
+        // MARK: - State Validation Guard
+        guard isUSBStreamingActive else {
+            print("Stop USB streaming called but not currently streaming")
+            return
+        }
+
         displayLink?.invalidate()
         displayLink = nil
         isUSBStreamingActive = false
         mlManager?.setUSBStreamingState(isActive: false)
-        
+
         // Reset ML inference state when stopping
         mlManager?.resetInferenceState()
+
+        // MARK: - Update Centralized State
+        if recordingMode == .usbStreaming {
+            recordingMode = .none
+        }
+
+        print("USB streaming stopped successfully")
     }
     
+    @MainActor
     func setupUSBStreaming() {
         var rgbBuffer: CVPixelBuffer?
 
@@ -463,24 +616,22 @@ class ARViewModel: ObservableObject{
         }
         self.rgbOutputPixelBufferUSB = rgbBuffer
 
-        if self.depthStatus.isDepthAvailable {
-            var depthBuffer: CVPixelBuffer?
-            var depthConfidenceBuffer: CVPixelBuffer?
+        // Try to set up depth buffers - optional, won't block if it fails
+        var depthBuffer: CVPixelBuffer?
+        var depthConfidenceBuffer: CVPixelBuffer?
 
-            let depthStatus = CVPixelBufferCreate(
-                kCFAllocatorDefault,
-                Int(depthViewPortSize.width),
-                Int(depthViewPortSize.height),
-                kCVPixelFormatType_DepthFloat32,
-                depthAttributes as CFDictionary,
-                &depthBuffer
-            )
-            
-            guard depthStatus == kCVReturnSuccess else {
-                return
-            }
+        let depthStatus = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            Int(depthViewPortSize.width),
+            Int(depthViewPortSize.height),
+            kCVPixelFormatType_DepthFloat32,
+            depthAttributes as CFDictionary,
+            &depthBuffer
+        )
+
+        if depthStatus == kCVReturnSuccess {
             self.depthOutputPixelBufferUSB = depthBuffer
-            
+
             let depthConfidenceStatus = CVPixelBufferCreate(
                 kCFAllocatorDefault,
                 Int(depthViewPortSize.width),
@@ -489,15 +640,15 @@ class ARViewModel: ObservableObject{
                 depthConfAttributes as CFDictionary,
                 &depthConfidenceBuffer
             )
-            guard depthConfidenceStatus == kCVReturnSuccess else {
-                return
+            if depthConfidenceStatus == kCVReturnSuccess {
+                self.depthConfidenceOutputPixelBufferUSB = depthConfidenceBuffer
             }
-            self.depthConfidenceOutputPixelBufferUSB = depthConfidenceBuffer
         }
         
         usbManager.connect()
     }
     
+    @MainActor
     func killUSBStreaming() {
         self.usbManager.disconnect()
 
@@ -516,10 +667,7 @@ class ARViewModel: ObservableObject{
     }
     
     
-    @objc private func sendFrame(link: CADisplayLink) {
-        streamVideoFrameUSB()
-    }
-    
+    @MainActor
     @objc private func sendFrameUSB(link: CADisplayLink) {
         streamVideoFrameUSB()
     }
@@ -546,25 +694,23 @@ class ARViewModel: ObservableObject{
         return compressedData
     }
     
+    @MainActor
     func streamVideoFrameUSB() {
         guard let currentFrame = session.currentFrame else {return}
         
         let rgbPixelBuffer = currentFrame.capturedImage
 
         // Perform ML inference on the RGB frame during streaming (provide ARFrame for odometry/goal updates)
-        mlManager?.performInference(on: rgbPixelBuffer, arFrame: currentFrame, timestamp: CACurrentMediaTime())
-        
-        
-
-        // TODO: Check if we need to change this at all
-        var depthPixelBuffer: CVPixelBuffer? = nil
-        var depthConfidencePixelBuffer: CVPixelBuffer? = nil
-        if self.depthStatus.isDepthAvailable {
-            guard let depthBuffer = currentFrame.sceneDepth?.depthMap else { return }
-            depthPixelBuffer = depthBuffer
-            guard let depthConfidenceBuffer = currentFrame.sceneDepth?.confidenceMap else { return }
-            depthConfidencePixelBuffer = depthConfidenceBuffer
+        if let mlManager = mlManager {
+            Task { @MainActor in
+                mlManager.performInference(on: rgbPixelBuffer, arFrame: currentFrame, timestamp: CACurrentMediaTime())
+            }
         }
+        
+        // Try to get depth data if available, but continue regardless
+        let depthBuffers = getDepthBuffers(from: currentFrame)
+        let depthPixelBuffer = depthBuffers?.depth
+        let depthConfidencePixelBuffer = depthBuffers?.confidence
         
         
         let cameraIntrinsics = currentFrame.camera.intrinsics
@@ -601,18 +747,24 @@ class ARViewModel: ObservableObject{
             deviceType: 1
         )
         
+        let rgbOutputBufferUSB = self.rgbOutputPixelBufferUSB
+        let depthOutputBufferUSB = self.depthOutputPixelBufferUSB
+        let depthConfOutputBufferUSB = self.depthConfidenceOutputPixelBufferUSB
+        let latestJointActions = self.mlManager?.latestResult?.jointPositions
+        let usbManager = self.usbManager
+        
         DispatchQueue.global(qos: .userInitiated).async {
+            guard let rgbOutputBufferUSB else { return }
             CVPixelBufferLockBaseAddress(rgbPixelBuffer, .readOnly)
-            CVPixelBufferLockBaseAddress(self.rgbOutputPixelBufferUSB!, [])
+            CVPixelBufferLockBaseAddress(rgbOutputBufferUSB, [])
 
-            // Try optimized path first
             let rgbImageData: Data?
             if self.canUseOptimizedTransform(for: rgbPixelBuffer) {
                 rgbImageData = self.processRGBOptimized(rgbPixelBuffer)
             } else {
                 // Fallback to Core Image pipeline
                 let rgbCiImage = CIImage(cvPixelBuffer: rgbPixelBuffer)
-                let rgbTransformedImage = rgbCiImage.transformed(by: self.combinedRGBTransform!)
+                let rgbTransformedImage = rgbCiImage.transformed(by: self.combinedRGBTransform ?? CGAffineTransform.identity)
 
                 guard let rgbCgImage = self.ciContext.createCGImage(rgbTransformedImage, from: rgbTransformedImage.extent) else{
                     return
@@ -622,15 +774,19 @@ class ARViewModel: ObservableObject{
 
             record3dHeader.rgbSize = UInt32(rgbImageData!.count)
             
-            CVPixelBufferUnlockBaseAddress(self.rgbOutputPixelBufferUSB!, [])
+            CVPixelBufferUnlockBaseAddress(rgbOutputBufferUSB, [])
             CVPixelBufferUnlockBaseAddress(rgbPixelBuffer, .readOnly)
             
             var compressedDepthData: Data? = nil
             var compressedDepthConfData: Data? = nil
             
-            if self.depthStatus.isDepthAvailable {
-                compressedDepthData = self.processDepthStreamData(depthPixelBuffer: depthPixelBuffer!, outputBuffer: self.depthOutputPixelBufferUSB!, isDepth: true)
-                compressedDepthConfData = self.processDepthStreamData(depthPixelBuffer: depthConfidencePixelBuffer!, outputBuffer: self.depthConfidenceOutputPixelBufferUSB!, isDepth: false)
+            // Process depth data if available
+            if let depthBuffer = depthPixelBuffer,
+               let depthConfBuffer = depthConfidencePixelBuffer,
+               let depthOutputBuffer = depthOutputBufferUSB,
+               let depthConfOutputBuffer = depthConfOutputBufferUSB {
+                compressedDepthData = self.processDepthStreamData(depthPixelBuffer: depthBuffer, outputBuffer: depthOutputBuffer, isDepth: true)
+                compressedDepthConfData = self.processDepthStreamData(depthPixelBuffer: depthConfBuffer, outputBuffer: depthConfOutputBuffer, isDepth: false)
 
                 record3dHeader.depthSize = UInt32(compressedDepthData?.count ?? 0)
                 record3dHeader.confidenceMapSize = UInt32(compressedDepthConfData?.count ?? 0)
@@ -638,7 +794,7 @@ class ARViewModel: ObservableObject{
 
             // Always send exactly 7 floats (28 bytes) for joint actions
             let jointActionsArray: [Float]
-            if let latestJointActions = self.mlManager?.latestResult?.jointPositions, !latestJointActions.isEmpty {
+            if let latestJointActions, !latestJointActions.isEmpty {
                 // Use actual ML inference results, ensure exactly 7 values
                 jointActionsArray = Array(latestJointActions.prefix(7)) + Array(repeating: 0.0, count: max(0, 7 - latestJointActions.count))
             } else {
@@ -649,7 +805,7 @@ class ARViewModel: ObservableObject{
             // Convert to exactly 28 bytes (7 floats * 4 bytes each)
             let jointActionsData = Data(bytes: jointActionsArray, count: 28)
 
-            self.usbManager.sendData(
+            usbManager.sendData(
                 record3dHeaderData: Data(bytes: &record3dHeader, count: MemoryLayout<Record3DHeader>.size),
                 intrinsicMatData: Data(bytes: &intrinsicCoeffs, count: MemoryLayout<IntrinsicMatrixCoeffs>.size),
                 poseData: Data(bytes: &camera_pose, count: MemoryLayout<CameraPose>.size),
@@ -662,6 +818,7 @@ class ARViewModel: ObservableObject{
         
     }
     
+    @MainActor
     @objc private func updateFrame(link: CADisplayLink) {
         guard lastTimestamp > 0 else {
             // Initialize timestamp on the first call
@@ -671,60 +828,95 @@ class ARViewModel: ObservableObject{
         captureVideoFrame()
     }
     
-    func startRecording() -> RecordingFiles {
-        let saveFileNames = setupRecording()
+    @MainActor
+    func startRecording() -> RecordingFiles? {
+        // MARK: - State Validation Guards
+        guard !isRecording else {
+            print("Recording already active - ignoring start request")
+            return currentRecordingFiles
+        }
+
+        guard recordingMode == .none else {
+            print("Another recording mode active: \(recordingMode) - stopping first")
+            stopAllActivities()
+            return nil
+        }
         
+        // Ensure transforms are computed before recording
+        ensureTransformsReady()
+
+        guard let saveFileNames = setupRecording() else {
+            print("Failed to setup recording")
+            return nil
+        }
+
+        // MARK: - Update Centralized State
+        isRecording = true
+        recordingMode = .standardRecording
+        currentRecordingFiles = saveFileNames
+
         // Reset ML inference state for new recording
         mlManager?.resetInferenceState()
-        
+
         // Start AR pose visualization with origin at current camera position
         arVisualizationManager.startRecordingVisualization()
-        
+
         assetWriter?.startWriting()
         startTime = CMTimeMake(value: Int64(CACurrentMediaTime() * 1000), timescale: 1000)
         assetWriter?.startSession(atSourceTime: startTime!)
-        
+
+        let audioEnabled = ifAudioEnable
+        let audioSession = self.audioSession
         DispatchQueue.global(qos: .background).async {
-            if(self.ifAudioEnable) {
-                self.audioSession.startRunning()
+            if audioEnabled {
+                audioSession.startRunning()
             }
         }
-        if self.depthStatus.isDepthAvailable {
-            depthAssetWriter?.startWriting()
-            depthAssetWriter?.startSession(atSourceTime: startTime!)
+        // Start depth recording if depth writer is available
+        if let depthWriter = depthAssetWriter {
+            depthWriter.startWriting()
+            depthWriter.startSession(atSourceTime: startTime!)
         }
-        
+
         displayLink = CADisplayLink(target: self, selector: #selector(updateFrame))
         displayLink?.preferredFrameRateRange = CAFrameRateRange(minimum: Float(self.userFPS!), maximum: Float(self.userFPS!), preferred: Float(self.userFPS!))
         displayLink?.add(to: .main, forMode: .common)
-        
-        return saveFileNames!
+
+        print("Recording started successfully")
+        return saveFileNames
         
     }
     
     
+    @MainActor
     func stopRecording(){
+        // MARK: - State Validation Guard
+        guard isRecording else {
+            print("Stop recording called but not currently recording")
+            return
+        }
+
         displayLink?.invalidate()
         displayLink = nil
-        
+
         // Stop AR pose visualization
         arVisualizationManager.stopRecordingVisualization()
-        
+
         // Reset ML inference state when stopping
         mlManager?.resetInferenceState()
-        
+
         if(ifAudioEnable) {
             audioSession.stopRunning()
             audioInput?.markAsFinished()
         }
         videoInput?.markAsFinished()
-        
+
         audioCaptureDelegate = nil
-        
+
         assetWriter?.finishWriting {
             self.assetWriter = nil
         }
-        
+
         depthVideoInput?.markAsFinished()
         depthAssetWriter?.finishWriting {
             self.depthAssetWriter = nil
@@ -735,10 +927,55 @@ class ARViewModel: ObservableObject{
         } catch {
             // Error closing pose file - continue cleanup
         }
-        
+
+        // MARK: - Update Centralized State
+        isRecording = false
+        recordingMode = .none
+        currentRecordingFiles = nil
+
         updateDemoCounter()
+        print("Recording stopped successfully")
+    }
+
+    // MARK: - Comprehensive Cleanup Method
+    @MainActor
+    func stopAllActivities() {
+        // If nothing is active, avoid redundant cleanup work
+        if !isRecording && !isUSBStreamingActive && recordingMode == .none && displayLink == nil {
+            print("No active activities to stop")
+            return
+        }
+
+        print("Stopping all activities...")
+
+        // Stop recording if active
+        if isRecording {
+            stopRecording()
+        }
+
+        // Stop USB streaming if active
+        if isUSBStreamingActive {
+            stopUSBStreaming()
+        }
+
+        // Reset ML inference state
+        mlManager?.resetInferenceState()
+
+        // Stop AR visualization
+        arVisualizationManager.stopRecordingVisualization()
+
+        // Invalidate any remaining display links
+        displayLink?.invalidate()
+        displayLink = nil
+
+        // Reset state
+        recordingMode = .none
+        currentRecordingFiles = nil
+
+        print("All activities stopped")
     }
     
+    @MainActor
     func setupRecording() -> RecordingFiles? {
         // Determine all the destinated file saving URL or this recording by its start time
         let dateFormatter = DateFormatter()
@@ -758,11 +995,7 @@ class ARViewModel: ObservableObject{
             fileNames["DepthImages"] = isColorMapOpened ? "Depth_Colored_Images_\(timestamp)" : "Depth_Images_\(timestamp)"
         }
         
-        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        
-        let generalDataDirectory = documentsURL.appendingPathComponent(timestamp)
+        let generalDataDirectory = getDocumentsDirect().appendingPathComponent(timestamp)
 
         guard let rgbFileName = fileNames["RGB"],
               let depthFileName = fileNames["Depth"],
@@ -788,7 +1021,7 @@ class ARViewModel: ObservableObject{
 
         do {
             try FileManager.default.createDirectory(at: generalDataDirectory, withIntermediateDirectories: true)
-            if mlManager?.saveDebugFrames == true && self.depthStatus.isDepthAvailable,
+            if mlManager?.saveDebugFrames == true,
                let depthDir = depthImagesDirectory {
                 try FileManager.default.createDirectory(at: depthDir, withIntermediateDirectories: true)
             }
@@ -842,9 +1075,8 @@ class ARViewModel: ObservableObject{
             
             self.pixelBufferAdapter = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: videoInput!, sourcePixelBufferAttributes: rgbAttributes)
             
-            if self.depthStatus.isDepthAvailable {
-                setupDepthRecording(depthVideoURL: depthVideoURL)
-            }
+            // Setup depth recording if supported
+            setupDepthRecording(depthVideoURL: depthVideoURL)
             
             self.poseFileHandle = try FileHandle(forWritingTo: poseTextURL)
             try poseFileHandle?.seekToEnd()
@@ -904,7 +1136,7 @@ class ARViewModel: ObservableObject{
         CVPixelBufferLockBaseAddress(outputBuffer, [])
         
         let ciImage = CIImage(cvPixelBuffer: rgbPixelBuffer)
-        let transformedImage = ciImage.transformed(by: self.combinedRGBTransform!) //.cropped(to: cropRect)
+        let transformedImage = ciImage.transformed(by: self.combinedRGBTransform ?? CGAffineTransform.identity) //.cropped(to: cropRect)
         self.ciContext.render(transformedImage, to: outputBuffer, bounds: cropRect, colorSpace: CGColorSpaceCreateDeviceRGB())
         
         guard let pixelBufferAdapter = self.pixelBufferAdapter else {
@@ -1129,6 +1361,7 @@ class ARViewModel: ObservableObject{
         }
     }
     
+    @MainActor
     func captureVideoFrame() {
 
         guard let currentFrame = session.currentFrame else {return}
@@ -1138,15 +1371,14 @@ class ARViewModel: ObservableObject{
         let currentTime = CMTimeMake(value: Int64(CACurrentMediaTime() * 1000), timescale: 1000)
     
         let rgbPixelBuffer = currentFrame.capturedImage
-        var depthPixelBuffer: CVPixelBuffer?
-        
-        if self.depthStatus.isDepthAvailable {
-            guard let depthBuffer = currentFrame.sceneDepth?.depthMap else { return }
-            depthPixelBuffer = depthBuffer
-        }
+        let depthPixelBuffer = currentFrame.sceneDepth?.depthMap
         
         // Perform ML inference on the RGB frame (provide ARFrame for odometry/goal updates)
-        mlManager?.performInference(on: rgbPixelBuffer, arFrame: currentFrame, timestamp: CACurrentMediaTime())
+        if let mlManager = mlManager {
+            Task { @MainActor in
+                mlManager.performInference(on: rgbPixelBuffer, arFrame: currentFrame, timestamp: CACurrentMediaTime())
+            }
+        }
         
         
         
@@ -1160,8 +1392,8 @@ class ARViewModel: ObservableObject{
         DispatchQueue.global(qos: .userInitiated).async {
             let rgbSuccess = self.processRGBCaptureData(rgbPixelBuffer: rgbPixelBuffer, cropRect: cropRect, currentTime: currentTime)
             imgSuccessFlag = imgSuccessFlag && rgbSuccess
-            if self.depthStatus.isDepthAvailable && imgSuccessFlag {
-                let depthSuccess = self.processDepthCaptureData(depthPixelBuffer: depthPixelBuffer, cropRect: depthCropRect, currentTime: currentTime)
+            if let depthBuffer = depthPixelBuffer, imgSuccessFlag {
+                let depthSuccess = self.processDepthCaptureData(depthPixelBuffer: depthBuffer, cropRect: depthCropRect, currentTime: currentTime)
                 imgSuccessFlag = imgSuccessFlag && depthSuccess
             }
             if imgSuccessFlag {
@@ -1170,15 +1402,14 @@ class ARViewModel: ObservableObject{
         }
     }
     
-    func getDocumentsDirect() -> URL{
-        let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
-        return paths[0]
+    func getDocumentsDirect() -> URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
     
     func updateDemoCounter() {
-        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
-        do{
-            let contents = try FileManager.default.contentsOfDirectory(at: documentsURL[0], includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants])
+        let documentsURL = getDocumentsDirect()
+        do {
+            let contents = try FileManager.default.contentsOfDirectory(at: documentsURL, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants])
             let directories = contents.filter { url in
                 var isDirectory: ObjCBool = false
                 FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
@@ -1191,6 +1422,7 @@ class ARViewModel: ObservableObject{
     }
     
     // MARK: - Model Manager Integration
+    @MainActor
     func initializeMLManager(with modelManager: ModelManager) {
         self.mlManager = MLInferenceManager(modelManager: modelManager)
         
@@ -1209,6 +1441,21 @@ class ARViewModel: ObservableObject{
      
     }
 
+
+    // MARK: - Bluetooth Recording Helpers (Consolidated)
+    func startBluetoothRecording(targetURL: URL, fps: Double) {
+        do {
+            try createFile(fileURL: targetURL)
+        } catch {
+            print("Error creating tactile file.")
+        }
+
+        bluetoothManager?.startRecording(targetURL: targetURL, fps: fps)
+    }
+
+    func stopBluetoothRecording() {
+        bluetoothManager?.stopRecording()
+    }
 
      }
 

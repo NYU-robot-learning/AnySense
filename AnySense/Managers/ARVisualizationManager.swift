@@ -1,3 +1,10 @@
+//
+//  ARVisualizationManager.swift
+//  AnySense
+//
+//  Created by Krish on 2025/2/1.
+//
+
 import Foundation
 import RealityKit
 import ARKit
@@ -7,7 +14,7 @@ import UIKit
 // MARK: - Action State
 enum ActionState {
     case waiting  // User is moving toward target
-    case reached  // Cubes overlapped, inference triggered
+    case reached  // Proximity triggered
     
     var displayName: String {
         switch self {
@@ -47,6 +54,7 @@ enum VisualizationFrequency: CaseIterable {
 }
 
 // MARK: - AR Visualization Manager
+@MainActor
 class ARVisualizationManager: ObservableObject {
     
     // MARK: - Published Properties
@@ -66,13 +74,13 @@ class ARVisualizationManager: ObservableObject {
     var isGripperClosed: Bool = false
     var useVirtualGripper: Bool = false
     var applyEndOffset: Bool = true
-    var endOffsetMeters: Float = 0.02
+    var endOffsetMeters: Float = 0.05
     
     // MARK: - Wireframe & Target Visualization
     private var wireframeEntity: Entity?
     private var wireframeAnchor: AnchorEntity?
     private let wireframeSize: Float = 0.018
-    private let wireframeOffsetMeters: Float = 0.04
+    private let wireframeOffsetMeters: Float = 0.05
     private var wireframeVisualPosition: SIMD3<Float>?
     private var activeTargetEntity: ModelEntity?
     private var activeTargetPosition: SIMD3<Float>?
@@ -164,8 +172,6 @@ class ARVisualizationManager: ObservableObject {
         worldOriginAnchor = nil
     }
     
-
-    
     // MARK: - Control Methods
     func enableVisualization() {
         isVisualizationEnabled = true
@@ -200,7 +206,7 @@ class ARVisualizationManager: ObservableObject {
         }
     }
     
-    // MARK: - Wireframe Management
+    // MARK: - Wireframe Management (Ego Visualization)
     func updateWireframe(cameraRelativePosition: SIMD3<Float>) {
         guard isVisualizationEnabled, !isGripperClosed else { return }
         
@@ -223,8 +229,13 @@ class ARVisualizationManager: ObservableObject {
             }
             
             if self.wireframeEntity == nil {
-                self.wireframeEntity = self.createWireframeBox()
+                // Ghost Arrow: Semi-transparent Blue
+                let ghostColor = UIColor.systemBlue.withAlphaComponent(0.4)
+                self.wireframeEntity = self.createArrowEntity(color: ghostColor)
                 self.wireframeAnchor!.addChild(self.wireframeEntity!)
+                
+                // Orient arrow to face forward (-Z) which is the default for our geometry
+                self.wireframeEntity!.orientation = simd_quatf(angle: 0, axis: SIMD3<Float>(1, 0, 0))
             }
             
             self.wireframeEntity?.position = SIMD3<Float>(0, 0, -self.wireframeOffsetMeters)
@@ -233,118 +244,39 @@ class ARVisualizationManager: ObservableObject {
         checkProximityAndUpdateState()
     }
     
-    // MARK: - Wireframe Creation
-    private func createWireframeBox() -> Entity {
-        let wireframeGroup = Entity()
-        let edgeThickness: Float = 0.001
-        let half = wireframeSize / 2.0
-        
-        createWireframeEdge(from: SIMD3<Float>(-half, -half, -half),
-                           to: SIMD3<Float>(half, -half, -half),
-                           thickness: edgeThickness,
-                           parent: wireframeGroup)
-        createWireframeEdge(from: SIMD3<Float>(half, -half, -half),
-                           to: SIMD3<Float>(half, half, -half),
-                           thickness: edgeThickness,
-                           parent: wireframeGroup)
-        createWireframeEdge(from: SIMD3<Float>(half, half, -half),
-                           to: SIMD3<Float>(-half, half, -half),
-                           thickness: edgeThickness,
-                           parent: wireframeGroup)
-        createWireframeEdge(from: SIMD3<Float>(-half, half, -half),
-                           to: SIMD3<Float>(-half, -half, -half),
-                           thickness: edgeThickness,
-                           parent: wireframeGroup)
-        createWireframeEdge(from: SIMD3<Float>(-half, -half, half),
-                           to: SIMD3<Float>(half, -half, half),
-                           thickness: edgeThickness,
-                           parent: wireframeGroup)
-        createWireframeEdge(from: SIMD3<Float>(half, -half, half),
-                           to: SIMD3<Float>(half, half, half),
-                           thickness: edgeThickness,
-                           parent: wireframeGroup)
-        createWireframeEdge(from: SIMD3<Float>(half, half, half),
-                           to: SIMD3<Float>(-half, half, half),
-                           thickness: edgeThickness,
-                           parent: wireframeGroup)
-        createWireframeEdge(from: SIMD3<Float>(-half, half, half),
-                           to: SIMD3<Float>(-half, -half, half),
-                           thickness: edgeThickness,
-                           parent: wireframeGroup)
-        createWireframeEdge(from: SIMD3<Float>(-half, -half, -half),
-                           to: SIMD3<Float>(-half, -half, half),
-                           thickness: edgeThickness,
-                           parent: wireframeGroup)
-        createWireframeEdge(from: SIMD3<Float>(half, -half, -half),
-                           to: SIMD3<Float>(half, -half, half),
-                           thickness: edgeThickness,
-                           parent: wireframeGroup)
-        createWireframeEdge(from: SIMD3<Float>(-half, half, -half),
-                           to: SIMD3<Float>(-half, half, half),
-                           thickness: edgeThickness,
-                           parent: wireframeGroup)
-        createWireframeEdge(from: SIMD3<Float>(half, half, -half),
-                           to: SIMD3<Float>(half, half, half),
-                           thickness: edgeThickness,
-                           parent: wireframeGroup)
-        
-        return wireframeGroup
-    }
-    
-    private func createWireframeEdge(from: SIMD3<Float>, to: SIMD3<Float>, thickness: Float, parent: Entity) {
-        let direction = to - from
-        let edgeLength = length(direction)
-        guard edgeLength > 1e-6 else { return }
-        
-        let center = (from + to) / 2.0
-        let targetDir = direction / edgeLength
-        let edgeMesh = MeshResource.generateBox(width: thickness, height: thickness, depth: edgeLength)
-        let blueMaterial = SimpleMaterial(color: UIColor.systemBlue.withAlphaComponent(0.9), isMetallic: false)
-        let edgeEntity = ModelEntity(mesh: edgeMesh, materials: [blueMaterial])
-        edgeEntity.position = center
-        
-        let defaultDir = SIMD3<Float>(0, 0, 1)
-        let dotProduct = dot(defaultDir, targetDir)
-        
-        if abs(dotProduct) > 0.999 {
-            if dotProduct < 0 {
-                edgeEntity.orientation = simd_quatf(angle: .pi, axis: SIMD3<Float>(0, 1, 0))
-            }
-        } else {
-            let axis = cross(defaultDir, targetDir)
-            let axisLength = length(axis)
-            if axisLength > 1e-6 {
-                let angle = acos(max(-1.0, min(1.0, dotProduct)))
-                edgeEntity.orientation = simd_quatf(angle: angle, axis: axis / axisLength)
-            }
-        }
-        
-        parent.addChild(edgeEntity)
-    }
-    
-    
+    // MARK: - Proximity Check
     private var lastLoggedDistance: Float = -1.0
-    
+
     private func checkProximityAndUpdateState() {
         guard !isGripperClosed,
               let wireframePos = wireframeVisualPosition,
-              let targetPos = activeTargetPosition else { return }
-        
-        // Use distance-based proximity instead of strict overlap
+              let activeTarget = activeTargetEntity else { return }
+
+        // Fix: Use local position (relative to WorldOriginAnchor) to match wireframeVisualPosition coordinate space
+        let targetPos = activeTarget.position
+
+        // Use distance-based proximity
         let distance = length(targetPos - wireframePos)
 
-        // Proximity threshold: more generous threshold for easier interaction
-        // targetSize=0.012m, wireframeSize=0.018m
-        let proximityThreshold: Float = 0.01 // 1cm threshold 
+        // Update target color based on proximity
+        updateTargetColor(for: distance)
+
+        // Debug print to verify distance
+        if debugLoggingEnabled && distance < 0.2 {
+             // throttling print to avoid spam could be good, but simple print is fine for now
+             // print("Dist: \(distance)")
+        }
+
+        // Proximity threshold: Relaxed to 2.5cm for robust interaction
+        let proximityThreshold: Float = 0.025
 
         let isNearby = distance <= proximityThreshold
 
-
         if isNearby {
             if actionState != .reached {
-                print("Target Cube REACHED")
+                print("Target Reached! (Dist: \(String(format: "%.3f", distance))m)")
                 actionState = .reached
-                // Simply remove the target when reached
+                // Remove the target to indicate success / clear the view
                 activeTargetEntity?.removeFromParent()
                 activeTargetEntity = nil
                 activeTargetPosition = nil
@@ -355,6 +287,60 @@ class ARVisualizationManager: ObservableObject {
                 actionState = .waiting
             }
         }
+    }
+
+    // MARK: - Color Update Based on Proximity
+    private func updateTargetColor(for distance: Float) {
+        guard let activeTarget = activeTargetEntity else { return }
+
+        // Color transition based on distance
+        // Far: Red (distance > 0.12m)
+        // Medium: Orange/Yellow (0.03m - 0.12m)
+        // Close: Green (< 0.03m)
+
+        let color: UIColor
+        if distance > 0.12 {
+            // Far - Red
+            color = UIColor.systemRed
+        } else if distance > 0.03 {
+            // Medium distance - interpolate from red to green
+            let progress = (0.12 - distance) / (0.12 - 0.03) // 0.0 to 1.0
+            color = interpolateColor(from: UIColor.systemRed, to: UIColor.systemGreen, progress: progress)
+        } else {
+            // Close - Green
+            color = UIColor.systemGreen
+        }
+
+        // Update the material on main thread - need to update all children of the arrow entity
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            let newMaterial = SimpleMaterial(color: color, isMetallic: false)
+
+            // Update all children of the arrow entity (shaft and head)
+            for child in activeTarget.children {
+                if let modelChild = child as? ModelEntity {
+                    modelChild.model?.materials = [newMaterial]
+                }
+            }
+        }
+    }
+
+    // MARK: - Color Interpolation Helper
+    private func interpolateColor(from: UIColor, to: UIColor, progress: Float) -> UIColor {
+        let clampedProgress = max(0.0, min(1.0, progress))
+
+        var fromRed: CGFloat = 0, fromGreen: CGFloat = 0, fromBlue: CGFloat = 0, fromAlpha: CGFloat = 0
+        var toRed: CGFloat = 0, toGreen: CGFloat = 0, toBlue: CGFloat = 0, toAlpha: CGFloat = 0
+
+        from.getRed(&fromRed, green: &fromGreen, blue: &fromBlue, alpha: &fromAlpha)
+        to.getRed(&toRed, green: &toGreen, blue: &toBlue, alpha: &toAlpha)
+
+        let resultRed = fromRed + (toRed - fromRed) * CGFloat(clampedProgress)
+        let resultGreen = fromGreen + (toGreen - fromGreen) * CGFloat(clampedProgress)
+        let resultBlue = fromBlue + (toBlue - fromBlue) * CGFloat(clampedProgress)
+        let resultAlpha = fromAlpha + (toAlpha - fromAlpha) * CGFloat(clampedProgress)
+
+        return UIColor(red: resultRed, green: resultGreen, blue: resultBlue, alpha: resultAlpha)
     }
     
     // MARK: - Manual Trigger Support
@@ -475,7 +461,7 @@ class ARVisualizationManager: ObservableObject {
         guard isVisualizationEnabled && hasEstablishedOrigin && !isGripperClosed else { return }
         guard jointActions.count >= 6 else { return }
         
-        let (cameraDeltaTranslation, _) = interpretMLDirections(jointActions, timestamp: timestamp)
+        let (cameraDeltaTranslation, cameraRotation) = interpretMLDirections(jointActions, timestamp: timestamp)
         let cameraTransform = getCurrentCameraTransform()
         let rotationWorldFromCamera = simd_float3x3(
             columns: (
@@ -485,9 +471,14 @@ class ARVisualizationManager: ObservableObject {
             )
         )
         let deltaTranslation = rotationWorldFromCamera * cameraDeltaTranslation
+        
+        // Convert local rotation to world rotation: R_target = R_camera * R_delta
+        let currentCameraRotation = simd_quatf(cameraTransform)
+        let targetRotation = currentCameraRotation * cameraRotation
+        
         let currentCameraPosition = SIMD3<Float>(cameraTransform.columns.3.x, cameraTransform.columns.3.y, cameraTransform.columns.3.z) - worldOrigin
         let targetPosition = currentCameraPosition + deltaTranslation
-        updateTarget(position: targetPosition)
+        updateTarget(position: targetPosition, rotation: targetRotation)
     }
     
     private func interpretMLDirections(_ jointActions: [Float], timestamp: CFTimeInterval = CACurrentMediaTime()) -> (translation: SIMD3<Float>, rotation: simd_quatf) {
@@ -504,33 +495,64 @@ class ARVisualizationManager: ObservableObject {
     }
     
     func updateTargetCube(position: SIMD3<Float>) {
-        updateTarget(position: position)
+         // Legacy support - default identity rotation
+        updateTarget(position: position, rotation: simd_quatf(angle: 0, axis: SIMD3<Float>(0, 1, 0)))
     }
     
     // MARK: - Target Management
-    func updateTarget(position: SIMD3<Float>) {
+    func updateTarget(position: SIMD3<Float>, rotation: simd_quatf) {
         guard isVisualizationEnabled, !isGripperClosed else { return }
         
         DispatchQueue.main.async { [weak self] in
             guard let self = self, let worldOriginAnchor = self.worldOriginAnchor else { return }
             
             if self.activeTargetEntity == nil {
-                let targetMesh = MeshResource.generateBox(size: self.targetSize)
-                let redMaterial = SimpleMaterial(color: UIColor.systemRed.withAlphaComponent(1.0), isMetallic: false)
-                let newTarget = ModelEntity(mesh: targetMesh, materials: [redMaterial])
+                // Target Arrow: Solid Red
+                let redColor = UIColor.systemRed.withAlphaComponent(1.0)
+                let newTarget = self.createArrowEntity(color: redColor)
                 worldOriginAnchor.addChild(newTarget)
                 self.activeTargetEntity = newTarget
                 self.actionState = .waiting
             }
             
             self.activeTargetEntity?.position = position
+            self.activeTargetEntity?.orientation = rotation // Aligned with Camera Frame
             self.activeTargetPosition = position
-            print("[Viz] Cube (Target) Position: (\(String(format: "%.3f", position.x)), \(String(format: "%.3f", position.y)), \(String(format: "%.3f", position.z)))")
+            print("[Viz] Target Arrow Pos: (\(String(format: "%.3f", position.x)), \(String(format: "%.3f", position.y)), \(String(format: "%.3f", position.z)))")
         }
     }
     
+    // Shared Arrow Creation (Used for both Ghost and Target)
+    private func createArrowEntity(color: UIColor) -> ModelEntity {
+        let arrowGroup = Entity()
+        let material = SimpleMaterial(color: color, isMetallic: false)
+        
+        // Dimensions - Adjusted for visual clarity
+        let length: Float = 0.025      // Shortened shaft (was 0.04)
+        let shaftRadius: Float = 0.004 // Thicker shaft (was 0.003)
+        let headRadius: Float = 0.012  // Wider head (was 0.01)
+        let headLength: Float = 0.015  // Head length kept similar
+        
+        // Shaft
+        let shaft = MeshResource.generateBox(width: shaftRadius*2, height: shaftRadius*2, depth: length)
+        let shaftEntity = ModelEntity(mesh: shaft, materials: [material])
+        shaftEntity.position = SIMD3<Float>(0, 0, -length/2)
+        
+        // Head (using Box for simplicity, but scaled to look broadly pointer-like)
+        let head = MeshResource.generateBox(size: headRadius*2)
+        let headEntity = ModelEntity(mesh: head, materials: [material])
+        headEntity.position = SIMD3<Float>(0, 0, -length - headRadius/2) 
+        // Note: Head position shifted to attach to shaft end
+        
+        // Combine
+        let parent = ModelEntity()
+        parent.addChild(shaftEntity)
+        parent.addChild(headEntity)
+        
+        return parent
+    }
     
-    private func eulerToQuaternion(roll: Float, pitch: Float, yaw: Float) -> simd_quatf {
+     private func eulerToQuaternion(roll: Float, pitch: Float, yaw: Float) -> simd_quatf {
         let phi_2 = roll / 2.0    
         let theta_2 = pitch / 2.0 
         let psi_2 = yaw / 2.0     

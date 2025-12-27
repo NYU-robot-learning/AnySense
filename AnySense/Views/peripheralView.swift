@@ -61,8 +61,8 @@ struct PeripheralView: View {
         VStack{
             Text("Devices Detected")
                 .font(.body)
-                .frame(width: 500.0, height: 50)
-                .ignoresSafeArea()
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
                 .foregroundStyle(.deviceWord)
                 .background(.deviceTop)
                 .padding(.top, 5)
@@ -78,6 +78,7 @@ struct PeripheralView: View {
             .scrollContentBackground(.hidden)
             .background(Color.customizedBackground)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.customizedBackground)
     }
 }

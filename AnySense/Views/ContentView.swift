@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import CoreBluetooth
 import AVFoundation
 
 struct ContentView: View {
@@ -116,6 +115,12 @@ class AppInformation : ObservableObject{
     @Published var ifBluetoothConnected: Bool = false
     @Published var ifAudioRecordingEnabled: Bool = false
     @Published var mlInferenceEnabled: Bool = false
+
+    // MARK: - Inference & Visualization Settings
+    @Published var showGripperOverlay: Bool = true
+    @Published var enableGripperOverlayInModel: Bool = true
+    @Published var arVisualizationEnabled: Bool = false
+    @Published var visualizationFrequency: VisualizationFrequency = .medium
 }
 
 
