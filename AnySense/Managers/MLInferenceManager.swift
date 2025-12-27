@@ -96,6 +96,8 @@ class MLInferenceManager: ObservableObject {
     
     // MARK: - Shared Buffers (Reused to avoid allocations)
     private var sharedOutputPixelBuffer: CVPixelBuffer?  // Reused CVPixelBuffer for frame processing
+    private var sharedMLMultiArrayBuffer: MLMultiArray?  // Pre-allocated MLMultiArray for frame conversion
+    private var cachedGripperOverlays: [String: CIImage] = [:]  // Cached transformed gripper overlays
 
     // MARK: - Gripper Overlay Properties
     private var gripperOpenCIImage: CIImage?
@@ -304,10 +306,61 @@ class MLInferenceManager: ObservableObject {
             return image
         }
 
+        // Check cache first to avoid expensive transform operations
+        let cacheKey = "\(currentGripperValue < 0.7 ? "closed" : "open")_\(Int(image.extent.width))x\(Int(image.extent.height))"
+        if let cachedOverlay = cachedGripperOverlays[cacheKey] {
+            return applyCachedGripperOverlay(to: image, overlay: cachedOverlay)
+        }
+
         if saveDebugFrames {
             print("DEBUG: Applying gripper overlay - value: \(String(format: "%.3f", currentGripperValue))")
         }
-        return applyGripperOverlayCoreImage(to: image, overlay: gripperOverlay)
+        let result = applyGripperOverlayCoreImage(to: image, overlay: gripperOverlay)
+
+        // Cache the transformed overlay for reuse
+        if cachedGripperOverlays.count < 10 { // Limit cache size
+            let transformedOverlay = createTransformedGripperOverlay(gripperOverlay, imageSize: image.extent.size)
+            cachedGripperOverlays[cacheKey] = transformedOverlay
+        }
+
+        return result
+    }
+
+    // MARK: - Cached Gripper Overlay Methods
+    private func createTransformedGripperOverlay(_ gripperOverlay: CIImage, imageSize: CGSize) -> CIImage {
+        // Apply same transformations as camera frames: scale to fit, then rotate if needed
+        let scale = min(imageSize.width / gripperOverlay.extent.width, imageSize.height / gripperOverlay.extent.height)
+
+        // Build combined transform: scale -> optional orientation -> rotation -> translation
+        var transform = CGAffineTransform(scaleX: scale, y: scale)
+
+        // Apply same orientation as camera frames
+        if applyServerImageOrientation {
+            transform = transform.concatenating(CGAffineTransform(rotationAngle: CGFloat.pi))
+        }
+
+        // Additional +90 degree rotation to align gripper direction with viewpoint
+        transform = transform.concatenating(CGAffineTransform(rotationAngle: CGFloat.pi / 2))
+
+        // Apply combined transform
+        var transformedOverlay = gripperOverlay.transformed(by: transform)
+
+        // After rotation, translate back to origin for proper overlay positioning
+        let rotatedExtent = transformedOverlay.extent
+        transformedOverlay = transformedOverlay.transformed(by: CGAffineTransform(translationX: -rotatedExtent.origin.x, y: -rotatedExtent.origin.y))
+
+        return transformedOverlay
+    }
+
+    private func applyCachedGripperOverlay(to image: CIImage, overlay cachedOverlay: CIImage) -> CIImage {
+        guard let compositeFilter = CIFilter(name: "CISourceOverCompositing") else {
+            return image
+        }
+
+        compositeFilter.setValue(cachedOverlay, forKey: kCIInputImageKey)
+        compositeFilter.setValue(image, forKey: kCIInputBackgroundImageKey)
+
+        return compositeFilter.outputImage ?? image
     }
 
     private func applyGripperOverlayCoreImage(to image: CIImage, overlay gripperOverlay: CIImage) -> CIImage {
@@ -318,29 +371,9 @@ class MLInferenceManager: ObservableObject {
             print("DEBUG: Original overlay extent: \(gripperOverlay.extent)")
         }
 
-        // Apply same transformations as camera frames: scale to fit, then rotate if needed
-        let scale = min(imageSize.width / gripperOverlay.extent.width, imageSize.height / gripperOverlay.extent.height)
-        
-        // Build combined transform: scale -> optional orientation -> rotation -> translation
-        var transform = CGAffineTransform(scaleX: scale, y: scale)
-        
-        // Apply same orientation as camera frames
-        if applyServerImageOrientation {
-            transform = transform.concatenating(CGAffineTransform(rotationAngle: CGFloat.pi))
-        }
-        
-        // Additional +90 degree rotation to align gripper direction with viewpoint
-        transform = transform.concatenating(CGAffineTransform(rotationAngle: CGFloat.pi / 2))
-        
-        // Apply combined transform
-        var transformedOverlay = gripperOverlay.transformed(by: transform)
-        
-        // After rotation, translate back to origin for proper overlay positioning
-        let rotatedExtent = transformedOverlay.extent
-        transformedOverlay = transformedOverlay.transformed(by: CGAffineTransform(translationX: -rotatedExtent.origin.x, y: -rotatedExtent.origin.y))
+        let transformedOverlay = createTransformedGripperOverlay(gripperOverlay, imageSize: imageSize)
 
         if saveDebugFrames {
-            print("DEBUG: Scale: \(String(format: "%.3f", scale))")
             print("DEBUG: Server orientation: \(applyServerImageOrientation)")
             print("DEBUG: Final overlay extent: \(transformedOverlay.extent)")
         }
@@ -416,38 +449,38 @@ class MLInferenceManager: ObservableObject {
         }
         
         // Perform loading on background thread to keep UI responsive
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        Task.detached(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
-            
+
             do {
-                let loadedModel = try self.modelManager.loadModel(for: activeModel)
+                let loadedModel = try await self.modelManager.loadModelAsync(for: activeModel)
                 
                 // Extract model metadata for type detection
                 let metadata = try ModelMetadata(from: loadedModel)
                 
-                DispatchQueue.main.async {
+                await MainActor.run {
                     self.model = loadedModel
                     self.modelMetadata = metadata
-                    
+
                     // Always maintain 3-frame rolling buffer
                     self.frameBuffer.removeAll()
                     self.hasRunFirstInference = false  // Reset for new model
-                    
+
                     print("Model loaded: \(activeModel.name)")
                     print("  Temporal frames: \(metadata.temporalFrames)")
                     print("  Goal conditioning: \(metadata.requiresGoalPoint)")
                     print("  Buffer size: \(self.maxBufferSize)")
-                    
+
                     self.modelInputSize = CGSize(width: 224, height: 224)
                     self.initializeSharedBuffers()
                     self.goalDimension = 3
-                    
+
                     // Mark loading as complete
                     self.isModelLoading = false
                 }
             } catch {
                 print("Error loading model: \(error)")
-                DispatchQueue.main.async {
+                await MainActor.run {
                     self.model = nil
                     self.modelMetadata = nil
                     self.frameBuffer.removeAll()
@@ -479,6 +512,15 @@ class MLInferenceManager: ObservableObject {
             )
             if status == kCVReturnSuccess {
                 sharedOutputPixelBuffer = pixelBuffer
+            }
+        }
+
+        // Initialize shared MLMultiArray buffer (224x224x3) - reused for frame conversion
+        if sharedMLMultiArrayBuffer == nil {
+            do {
+                sharedMLMultiArrayBuffer = try MLMultiArray(shape: [1, 3, 224, 224], dataType: .float32)
+            } catch {
+                print("Warning: Could not create shared MLMultiArray buffer: \(error)")
             }
         }
     }
@@ -936,8 +978,16 @@ class MLInferenceManager: ObservableObject {
     
     // MARK: - Unified Pixel Buffer to MLMultiArray Conversion (Accelerate Optimized)
     private func convertPixelBufferToMLMultiArray(_ pixelBuffer: CVPixelBuffer, width: Int, height: Int) throws -> MLMultiArray {
-        // Create new MLMultiArray (can't reuse since it's stored in frameBuffer)
-        let inputArray = try MLMultiArray(shape: [1, 3, NSNumber(value: height), NSNumber(value: width)], dataType: .float32)
+        // Use shared buffer if available, otherwise create new one
+        let inputArray: MLMultiArray
+        if let sharedBuffer = sharedMLMultiArrayBuffer {
+            inputArray = sharedBuffer
+            // Clear the buffer by zeroing it out efficiently
+            memset(inputArray.dataPointer, 0, inputArray.count * MemoryLayout<Float>.size)
+        } else {
+            // Fallback: create new MLMultiArray
+            inputArray = try MLMultiArray(shape: [1, 3, NSNumber(value: height), NSNumber(value: width)], dataType: .float32)
+        }
         
         guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else {
             throw NSError(domain: "MLInferenceManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to get pixel buffer base address"])
@@ -992,7 +1042,14 @@ class MLInferenceManager: ObservableObject {
         
         vDSP_vfltu8(tempB.assumingMemoryBound(to: UInt8.self), 1, bPtr, 1, vDSP_Length(totalPixels))
         vDSP_vsmul(bPtr, 1, &scale, bPtr, 1, vDSP_Length(totalPixels))
-        
+
+        // Return a copy of the shared buffer to avoid conflicts when stored in frameBuffer
+        if inputArray === sharedMLMultiArrayBuffer {
+            let copyArray = try MLMultiArray(shape: [1, 3, NSNumber(value: height), NSNumber(value: width)], dataType: .float32)
+            memcpy(copyArray.dataPointer, inputArray.dataPointer, inputArray.count * MemoryLayout<Float>.size)
+            return copyArray
+        }
+
         return inputArray
     }
     

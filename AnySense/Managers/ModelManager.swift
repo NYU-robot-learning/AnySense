@@ -426,8 +426,24 @@ class ModelManager: ObservableObject {
         guard let modelURL = getModelURL(for: modelInfo) else {
             throw ModelError.modelNotFound("Model file not found: \(modelInfo.name)")
         }
-        
-        return try MLModel(contentsOf: modelURL)
+
+        // Use async loading with configuration for better performance
+        let config = MLModelConfiguration()
+        config.computeUnits = .all // Use all available compute units
+
+        return try MLModel(contentsOf: modelURL, configuration: config)
+    }
+
+    func loadModelAsync(for modelInfo: ModelInfo) async throws -> MLModel {
+        guard let modelURL = getModelURL(for: modelInfo) else {
+            throw ModelError.modelNotFound("Model file not found: \(modelInfo.name)")
+        }
+
+        return try await Task.detached(priority: .userInitiated) {
+            let config = MLModelConfiguration()
+            config.computeUnits = .all
+            return try MLModel(contentsOf: modelURL, configuration: config)
+        }.value
     }
     
     func getActiveModelMetadata() -> ModelMetadata? {

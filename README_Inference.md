@@ -1,16 +1,17 @@
 # Inference View
 
-The inference view lets you run a point-conditioned CoreML policy on-device, visualize actions in AR, and inspect the gripper state. The purpose of this is to allow for us to be able to test the model without a robot, and get a sense of it's capability(vibe) with you acting as a robot arm, and evaluating in the wild based on the policy's conditioning task. It is optimized for low-latency inference and small memory churn using shared pixel buffers and Accelerate for preprocessing.
+The inference view lets you run a point-conditioned CoreML policy on-device, visualize actions in AR, and inspect the gripper state. The purpose of this is to allow for us to be able to test the model without a robot, and get a sense of it's capability(vibe) with you acting as a robot arm, and evaluating in the wild based on the policy's conditioning task. The demo model loaded by default is a object pick-up policy. It is optimized for low-latency inference and small memory churn using shared pixel buffers and Accelerate for preprocessing.
 
-## Model Assumptions
+## Technical Specifications
 
-- CoreML model (converted from RUM/min-stretch pipeline).
-- RGB input resized to 224×224 today (code path); original spec 256×256—adjust `modelInputSize`/buffers in `MLInferenceManager` if your model truly requires 256.
-- Temporal window: 3 frames (rolling action buffer).
-- Inputs: image tensor `[1, 3, H, W]` or `[1, T, 3, H, W]` plus goal tensor (3D point; shape inferred from the model).
-- Output: 7 floats (6-DoF action + gripper scalar at index 6). Temporal outputs use the last timestep.
+**Model Requirements:**
+The system accepts CoreML models converted from our pipelines such as RUM/min-stretch. Models must process RGB input at 224×224 pixel resolution, though the original specification supported 256×256 pixels. Researchers requiring alternative resolutions can adjust the `modelInputSize` parameter and corresponding buffer allocations in `MLInferenceManager`.
 
-## Pipeline (MLInferenceManager)
+The system supports temporal models with up to 3-frame rolling buffers, automatically managing sequence padding for consistency. Input tensors follow standard formats: `[1, 3, H, W]` for single-frame models or `[1, T, 3, H, W]` for temporal architectures, accompanied by goal tensors representing 3D spatial coordinates with shape inferred from model specifications.
+
+Model outputs must provide 7-element vectors representing 6-DOF manipulation actions plus gripper state. For temporal models, the system extracts predictions from the final timestep, ensuring consistency with training assumptions while accommodating variable sequence lengths.
+
+## App Pipeline
 
 1) **Model load**: `ModelManager` provides the active compiled model and metadata (temporal frames, input/output names, goal requirement). A loading overlay is shown while this warms up.  
 2) **Goal conditioning**: A user-tapped 3D goal in world space is transformed to the camera/labels frame just before inference (mapping: `[-x_cam, -z_cam + first-frame 0.02 offset, -y_cam]`). Required models skip inference until a goal exists.  
@@ -22,30 +23,18 @@ The inference view lets you run a point-conditioned CoreML policy on-device, vis
 6) **Inference**: Run off-main on a dedicated queue; track inference time; guard with a pending flag to avoid overlap.  
 7) **Postprocess**: Extract joint actions (last timestep if temporal). Gripper value updates UI + overlay, and AR visualization updates the target pose (skipped in USB mode). Latest result is published for the UI card.
 
-## UI/Controls (InferenceView)
+## UI/Controls
 
 - **Set goal**: Tap “Set goal”, then tap in AR to place the 3D target.  
 - **Start/stop**: App toggle enables/disables inference; model loading overlay appears when switching models.  
-- **Manual step**: “Get next action” calls manual inference using the buffered frames.  
-- **Modes**:  
-  - Recording mode (USB off): proximity trigger or manual step drives inference.  
-  - USB streaming: continuous buffer + frequency-based inference; gripper overlay is skipped in the model input because the real gripper is present.  
+- **Manual step**: “Get next action” calls manual inference using the existing buffered frames. This is specifically useful if there's significant deviation from target, and user wants to realign and restart inferencing. This also helps check for robustness in the performance. 
 - **Visualization**: AR overlay shows the inferred pose (recording mode only). Gripper overlay image on-screen mirrors predicted gripper open/closed and shows an “iPhone Inferencing” badge when active.  
-- **Status card**: `MLInferenceResultsView` shows gripper value and OPEN/CLOSED state; “Analyzing…” while waiting for first result.  
-- **Other controls**: Record/stop capture, delete last recording (with confirm), flash toggle, grid overlay toggle, Bluetooth status bar.
+- **Status card**: `MLInferenceResultsView` shows gripper value and OPEN/CLOSED state.  
 
 ## How to Use Quickly
 
-1) Ensure a compiled model is available (see min-stretch conversion flow) and enter the Inference tab.  
-2) Enable inference; wait for “Preparing Model…” to finish if shown.  
-3) Tap “Set goal” and place the target in AR.  
-4) Press Record (or leave USB streaming on) and either approach the goal (proximity trigger) or tap “Get next action.”  
-5) Watch the AR pose updates (recording mode) and the gripper card/overlay for state and timing feedback.
-
-## Notes for Researchers
-
-- Temporal window and goal handling match the training assumptions: three recent frames plus a 3D goal mapped into the labels frame.  
-- Current resize is 224×224; if your model was exported for 256×256, update `modelInputSize`, shared buffers, and processing paths accordingly.  
-- Gripper is treated as a continuous scalar; UI thresholds `<0.7` as CLOSED.  
-- Inference frequency can be throttled to study latency/throughput tradeoffs; visualization frequency is synchronized to the chosen inference cadence.  
-- Debug hooks: optional frame saves, transform debug prints, and detailed console logs around buffering, padding, and overlay application.
+1) Ensure a compiled model is available (see min-stretch conversion flow) and enter the Inference tab. A demo model is already loaded up, trained on object pick-up tasks.
+2) Enable AI inference from the settings view; wait for “Preparing Model…” to finish if shown.  
+3) Tap “Set goal” and click on a pointplace the target in AR.  
+4) Press Record, and start aligning the blue arrow to the red arrow (that changes from red to green as you get closer). As you align, the next action is inferenced. If next action is far off target, you can retry inferencing using the "Get next action" button.
+5) Watch the AR pose updates and the gripper card/overlay for state and timing feedback.
