@@ -161,14 +161,11 @@ struct SettingsView : View{
 
                 // MARK: - Inference Settings Section
                 Section(header: Text("INFERENCE SETTINGS")) {
-                    // Enable AI Guidance Toggle - Context Aware
-                    HStack {
-                        Text("Enable AI Guidance")
-                            .font(.body)
-                            .foregroundColor(.primary)
-                        Spacer()
-                        Toggle("", isOn: $appStatus.mlInferenceEnabled)
-                            .disabled(!modelManager.hasAvailableModel)
+                    // Inference is tab-scoped (enabled automatically in the Inference tab)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Inference runs automatically in the Inference tab")
+                            .font(.caption)
+                            .foregroundColor(.gray)
                     }
                     .padding(.vertical, 5)
 
@@ -240,37 +237,6 @@ struct SettingsView : View{
                     }
                     .padding(.vertical, 5)
 
-                    // AR Visualization Settings
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("AR Visualization")
-                                .font(.body)
-                                .foregroundColor(.primary)
-                            Text("Show 3D arrows and targets")
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                        }
-                        Spacer()
-                        Toggle("", isOn: $appStatus.arVisualizationEnabled)
-                    }
-                    .padding(.vertical, 5)
-
-                    // Visualization Frequency
-                    if appStatus.arVisualizationEnabled {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Visualization Frequency")
-                                .font(.body)
-                                .foregroundColor(.primary)
-
-                            Picker("Visualization Frequency", selection: $appStatus.visualizationFrequency) {
-                                ForEach(VisualizationFrequency.allCases, id: \.self) { frequency in
-                                    Text(frequency.displayName).tag(frequency)
-                                }
-                            }
-                            .pickerStyle(MenuPickerStyle())
-                        }
-                        .padding(.vertical, 5)
-                    }
                 }
             }
             .scrollContentBackground(.hidden)

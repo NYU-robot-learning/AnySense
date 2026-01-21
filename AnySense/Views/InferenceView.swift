@@ -20,6 +20,19 @@ struct InferenceViewOverlay: View {
     @EnvironmentObject var appStatus: AppInformation
     @ObservedObject var arViewModel: ARViewModel
     @State var openFlash = true
+    @State private var deviceOrientation: UIDeviceOrientation = .unknown
+    @State private var isLandscape = false
+    
+    private var instructionRotation: Angle {
+        switch deviceOrientation {
+        case .landscapeLeft:
+            return .degrees(90)
+        case .landscapeRight:
+            return .degrees(-90)
+        default:
+            return .degrees(0)
+        }
+    }
     
     var body: some View {
         GeometryReader { geometry in
@@ -51,39 +64,59 @@ struct InferenceViewOverlay: View {
                         Spacer()
                         
                         let instructionText: String = {
-                            // Step 1: AI guidance is off
-                            if !appStatus.mlInferenceEnabled {
-                                return "Enable AI Guidance in Settings"
+                            guard isLandscape else {
+                                return "Hold landscape"
                             }
-                            // Step 2: AI on, but Set Goal not clicked yet
-                            if !arViewModel.goalTapModeEnabled {
-                                return "Click on Set Goal"
+                            
+                            guard let mlManager = arViewModel.mlManager else {
+                                return "Loading model…"
                             }
-                            // Step 3: Set Goal clicked, waiting for tap
-                            if arViewModel.mlManager?.currentGoalPoint == nil {
-                                return "Tap a point to set a target object"
+                            
+                            if arViewModel.isInferenceEpisodeFinished {
+                                return "Episode finished!"
                             }
-                            // Step 4: Goal is set, follow the arrow
-                            return "Follow the arrow"
+                            
+                            if arViewModel.isInferencePlaying {
+                                return "Follow the arrows"
+                            }
+                            
+                            if mlManager.requiresGoalPoint {
+                                if mlManager.currentGoalPoint == nil {
+                                    return arViewModel.goalTapModeEnabled
+                                        ? "Click on an object to track"
+                                        : "Click on set goal"
+                                }
+                                return "Press play to start demo"
+                            }
+                            
+                            return "Press play to start demo"
                         }()
                         
-                        Text(instructionText)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.white.opacity(0.9))
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(Color.gray.opacity(0.6))
-                            .cornerRadius(8)
-                            .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
-                            .animation(.easeInOut, value: instructionText)
+                        HStack {
+                            Spacer()
+                            Text(instructionText)
+                                .font(.system(size: 14, weight: .medium))
+                                .multilineTextAlignment(.center)
+                                .foregroundColor(.white.opacity(0.9))
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(Color.gray.opacity(0.6))
+                                .cornerRadius(8)
+                                .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
+                                .rotationEffect(isLandscape ? instructionRotation : .degrees(0))
+                                .animation(.easeInOut, value: instructionText)
+                                .animation(.easeInOut, value: isLandscape)
+                            Spacer()
+                        }
                         
                         Spacer()
                             .frame(height: 60)
                     }
+                    .allowsHitTesting(false)
                     
                     // Manual Next Action Button
                     if let mlManager = arViewModel.mlManager,
-                       appStatus.mlInferenceEnabled && mlManager.isInferenceEnabled {
+                       mlManager.isInferenceEnabled && arViewModel.isInferencePlaying && !arViewModel.isInferenceEpisodeFinished {
                         VStack {
                             HStack {
                                 Spacer()
@@ -144,7 +177,7 @@ struct InferenceViewOverlay: View {
                 VStack {
                     HStack {
                         VStack(alignment: .leading, spacing: 8) {
-                            if appStatus.mlInferenceEnabled && arViewModel.mlManager?.isInferenceEnabled == true {
+                            if arViewModel.mlManager?.isInferenceEnabled == true {
                                 if let mlManager = arViewModel.mlManager {
                                     MLInferenceResultsView(mlManager: mlManager)
                                 }
@@ -157,6 +190,7 @@ struct InferenceViewOverlay: View {
                 }
                 .frame(width: arViewWidth, height: arViewHeight)
                 .padding(.bottom, arViewPadding)
+                .allowsHitTesting(false)
                 
                 // Top bar with notch area + Bluetooth status
                 VStack(spacing: 0) {
@@ -196,6 +230,7 @@ struct InferenceViewOverlay: View {
                     }
                     .frame(width: arViewWidth, height: arViewHeight)
                     .padding(.bottom, arViewPadding)
+                    .allowsHitTesting(false)
                 }
                 
                 // Bottom controls with background
@@ -217,25 +252,29 @@ struct InferenceViewOverlay: View {
                             HStack {
                                 Spacer()
                                 ZStack {
-                                    Image(systemName: "circle")
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fit)
-                                        .frame(height: buttonSize)
-                                        .frame(width: buttonSize)
-                                        .foregroundStyle(.deviceWord)
-                                        .multilineTextAlignment(.center)
+                                    let canStartInference: Bool = {
+                                        guard let mlManager = arViewModel.mlManager else { return false }
+                                        if mlManager.requiresGoalPoint && mlManager.currentGoalPoint == nil {
+                                            return false
+                                        }
+                                        return true
+                                    }()
                                     Button(action: {
-                                        toggleRecording(mode: appStatus.rgbdVideoStreaming)
+                                        toggleInferencePlayback()
                                     }) {
-                                        Image(systemName: arViewModel.isRecording ? "square.fill" : "circle.fill")
+                                        Image(systemName: arViewModel.isInferencePlaying ? "square.fill" : "play.fill")
                                             .resizable()
                                             .aspectRatio(contentMode: .fit)
                                             .frame(height: buttonSize - 10)
                                             .frame(width: buttonSize - 10)
                                             .multilineTextAlignment(.center)
-                                            .foregroundStyle(Color.red)
+                                            .foregroundStyle(arViewModel.isInferencePlaying ? Color.red : Color.green)
                                     }
-                                    .buttonStyle(scaleButtonStyle(isRecording: arViewModel.isRecording))
+                                    .frame(width: buttonSize, height: buttonSize)
+                                    .contentShape(Circle())
+                                    .disabled(!arViewModel.isInferencePlaying && !canStartInference)
+                                    .opacity((!arViewModel.isInferencePlaying && !canStartInference) ? 0.5 : 1.0)
+                                    .buttonStyle(scaleButtonStyle(isPlaying: arViewModel.isInferencePlaying))
                                 }
                                 Spacer()
                             }
@@ -289,35 +328,31 @@ struct InferenceViewOverlay: View {
                 }
             }
         }
-        .onChange(of: appStatus.mlInferenceEnabled) { oldValue, newValue in
-            if newValue {
-                arViewModel.mlManager?.enableInference()
-            } else {
-                arViewModel.mlManager?.disableInference()
-            }
-        }
         .onChange(of: appStatus.showGripperOverlay) { oldValue, newValue in
             arViewModel.mlManager?.showGripperOverlayOnScreen = newValue
         }
         .onChange(of: appStatus.enableGripperOverlayInModel) { oldValue, newValue in
             arViewModel.mlManager?.enableGripperOverlay = newValue
         }
-        .onChange(of: appStatus.arVisualizationEnabled) { oldValue, newValue in
-            arViewModel.arVisualizationManager.isVisualizationEnabled = newValue
-        }
-        .onChange(of: appStatus.visualizationFrequency) { oldValue, newValue in
-            arViewModel.arVisualizationManager.visualizationFrequency = newValue
+        .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
+            updateOrientation()
         }
         .onAppear {
+            UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+            updateOrientation()
             initCode()
+        }
+        .onDisappear {
+            UIDevice.current.endGeneratingDeviceOrientationNotifications()
+            arViewModel.arVisualizationManager.disableVisualization()
         }
     }
     
     private func initCode() {
         arViewModel.isColorMapOpened = appStatus.colorMapTrigger
         arViewModel.userFPS = appStatus.animationFPS
-        arViewModel.arVisualizationManager.isVisualizationEnabled = appStatus.arVisualizationEnabled
-        arViewModel.arVisualizationManager.visualizationFrequency = appStatus.visualizationFrequency
+        arViewModel.arVisualizationManager.enableVisualization()
+        arViewModel.arVisualizationManager.ensureVisualizationReady()
         initializeMLSettings()
     }
     
@@ -327,45 +362,29 @@ struct InferenceViewOverlay: View {
             print("ML manager not available during InferenceViewOverlay initialization")
             return
         }
-        if appStatus.mlInferenceEnabled {
-            mlManager.enableInference()
-        } else {
-            mlManager.disableInference()
-        }
+        // Inference is tab-scoped; enable while this view is visible.
+        mlManager.enableInference()
         mlManager.showGripperOverlayOnScreen = appStatus.showGripperOverlay
         mlManager.enableGripperOverlay = appStatus.enableGripperOverlayInModel
-        print("ML settings initialized successfully for InferenceViewOverlay")
+        print("Inference settings initialized successfully for InferenceViewOverlay")
     }
     
     struct scaleButtonStyle: ButtonStyle {
-        let isRecording: Bool
+        let isPlaying: Bool
         func makeBody(configuration: Configuration) -> some View {
-            configuration.label.scaleEffect(isRecording ? 0.35 : 1)
+            configuration.label.scaleEffect(isPlaying ? 0.55 : 1)
         }
     }
     
-    func toggleRecording(mode: StreamingMode) {
+    func toggleInferencePlayback() {
         if arViewModel.isOpen {
-            if mode == .off {
-                if !arViewModel.isRecording {
-                    // Start recording (for inference, we don't need to save file references)
-                    if let files = arViewModel.startRecording() {
-                        if arViewModel.getBLEManagerInstance().ifConnected {
-                            arViewModel.startBluetoothRecording(targetURL: files.tactileFile, fps: appStatus.animationFPS)
-                        }
-                    }
-                } else {
-                    if arViewModel.getBLEManagerInstance().ifConnected {
-                        arViewModel.stopBluetoothRecording()
-                    }
-                    arViewModel.stopRecording()
-                }
-            } else if mode == .usb {
-                if !arViewModel.isUSBStreamingActive {
-                    arViewModel.startUSBStreaming()
-                } else {
-                    arViewModel.stopUSBStreaming()
-                }
+            if !arViewModel.isInferencePlaying {
+                arViewModel.startInferencePlayback()
+            } else {
+                arViewModel.stopInferencePlayback(reset: true)
+                arViewModel.goalTapModeEnabled = false
+                arViewModel.mlManager?.clearGoalPoint()
+                arViewModel.arVisualizationManager.clearTargetPose()
             }
         }
         UIImpactFeedbackGenerator(style: appStatus.hapticFeedbackLevel).impactOccurred()
@@ -384,6 +403,13 @@ struct InferenceViewOverlay: View {
         }
         openFlash = !openFlash
         UIImpactFeedbackGenerator(style: appStatus.hapticFeedbackLevel).impactOccurred()
+    }
+    
+    private func updateOrientation() {
+        let orientation = UIDevice.current.orientation
+        guard orientation.isValidInterfaceOrientation else { return }
+        deviceOrientation = orientation
+        isLandscape = orientation.isLandscape
     }
 }
 

@@ -26,18 +26,19 @@ Model outputs must provide 7-element vectors representing 6-DOF manipulation act
 ## UI/Controls
 
 - **Set goal**: Tap “Set goal”, then tap in AR to place the 3D target.  
-- **Start/stop**: App toggle enables/disables inference; model loading overlay appears when switching models.  
+- **Start/stop**: Inference is enabled automatically in the Inference tab; press **Play/Stop** to start/stop inference (no video is saved). A loading overlay appears when switching models.  
 - **Manual step**: "Get next action" calls manual inference using the existing buffered frames. This is specifically useful if there's significant deviation from target, and user wants to realign and restart inferencing. This also helps check for robustness in the performance.
-- **Visualization**: AR overlay shows the inferred pose (recording mode only). Gripper overlay image on-screen mirrors predicted gripper open/closed and shows an “iPhone Inferencing” badge when active.  
+- **Visualization**: AR overlay shows the inferred pose when **not** in USB streaming mode. Gripper overlay image on-screen mirrors predicted gripper open/closed and shows an “iPhone Inference” badge when active.  
 - **Status card**: `MLInferenceResultsView` shows gripper value and OPEN/CLOSED state.  
 
 ## How to Use Quickly
 
 1) Ensure a compiled model is available (see min-stretch conversion flow) and enter the Inference tab. A demo model is already loaded up, trained on object pick-up tasks.
-2) Enable AI inference from the settings view; wait for "Preparing Model…" to finish if shown.  
-3) Tap "Set goal" and click on a pointplace the target in AR.  
-4) Press Record, and start aligning the blue arrow to the red arrow (that changes from red to green as you get closer). As you align, the next action is inferenced. If next action is far off target, you can retry inferencing using the "Get next action" button.
-5) Watch the AR pose updates and the gripper card/overlay for state and timing feedback.
+2) Hold the phone sideways (**landscape**) while using the demo. Wait for "Preparing Model…" to finish if shown.  
+3) Tap "Set goal" and tap a point to place the target in AR.  
+4) Press **Play**, then start aligning the blue arrow to the red arrow (that changes from red to green as you get closer). As you align, the next action is inferred. If the next action is far off target, you can retry using the "Get next action" button.  
+5) When the gripper closes, the episode is finished; press **Stop** to reset.  
+6) Watch the AR pose updates and the gripper card/overlay for state and timing feedback.
 
 ## USB Streaming for Robot Control
 

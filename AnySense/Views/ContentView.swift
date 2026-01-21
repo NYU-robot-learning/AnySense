@@ -73,11 +73,6 @@ struct ContentView: View {
     private func setupModelManager() {
         // Initialize the ML inference manager with model manager
         arViewModel.initializeMLManager(with: modelManager)
-        
-        // Sync with app status
-        if appStatus.mlInferenceEnabled {
-            arViewModel.mlManager?.enableInference()
-        }
     }
     
     private func openAppSettings() {
@@ -114,13 +109,10 @@ class AppInformation : ObservableObject{
     @Published var colorMapTrigger: Bool = false
     @Published var ifBluetoothConnected: Bool = false
     @Published var ifAudioRecordingEnabled: Bool = false
-    @Published var mlInferenceEnabled: Bool = false
 
-    // MARK: - Inference & Visualization Settings
+    // MARK: - Inference Settings
     @Published var showGripperOverlay: Bool = true
     @Published var enableGripperOverlayInModel: Bool = true
-    @Published var arVisualizationEnabled: Bool = false
-    @Published var visualizationFrequency: VisualizationFrequency = .medium
 }
 
 

@@ -108,7 +108,13 @@ class MLInferenceManager: ObservableObject {
     private var isUSBStreamingActive: Bool = false
     private var currentGripperValue: Float = 1.0  // Track latest gripper value
     @Published var enableGripperOverlay: Bool = true  // Default enabled (for model input)
-    @Published var showGripperOverlayOnScreen: Bool = true  // Show overlay on AR view
+    @Published var showGripperOverlayOnScreen: Bool = true {  // Show overlay on AR view
+        didSet {
+            Task { @MainActor in
+                updateGripperOverlayDisplay()
+            }
+        }
+    }
     @Published var currentGripperOverlayImage: UIImage?  // Current overlay image for display
     @Published var saveDebugFrames: Bool = false     // For testing
     
@@ -207,7 +213,7 @@ class MLInferenceManager: ObservableObject {
     
     @MainActor
     private func updateGripperOverlayDisplay() {
-        guard shouldApplyGripperOverlay() else {
+        guard shouldShowGripperOverlayOnScreen() else {
             currentGripperOverlayImage = nil
             return
         }
@@ -265,16 +271,22 @@ class MLInferenceManager: ObservableObject {
 
     func setUSBStreamingState(isActive: Bool) {
         isUSBStreamingActive = isActive
-        print("USB streaming state: \(isActive ? "ON" : "OFF") - Gripper overlay: \(shouldApplyGripperOverlay() ? "ENABLED" : "DISABLED")")
+        let inputOverlay = shouldApplyGripperOverlayToModelInput() ? "ENABLED" : "DISABLED"
+        let screenOverlay = shouldShowGripperOverlayOnScreen() ? "ON" : "OFF"
+        print("USB streaming state: \(isActive ? "ON" : "OFF") - Overlay input: \(inputOverlay), Overlay display: \(screenOverlay)")
         Task { @MainActor in
             updateGripperOverlayDisplay()
         }
     }
 
-    private func shouldApplyGripperOverlay() -> Bool {
-        // Use gripper overlay when USB streaming is OFF (virtual gripper proxy)
-        // Disable when USB streaming is ON (robot has real gripper)
+    private func shouldApplyGripperOverlayToModelInput() -> Bool {
+        // Use gripper overlay in model input when USB streaming is OFF (virtual gripper proxy)
         return enableGripperOverlay && !isUSBStreamingActive
+    }
+
+    private func shouldShowGripperOverlayOnScreen() -> Bool {
+        // On-screen overlay is user-controlled; keep it off during USB streaming
+        return showGripperOverlayOnScreen && !isUSBStreamingActive
     }
 
     private func getCurrentGripperOverlay() -> CIImage? {
@@ -292,7 +304,7 @@ class MLInferenceManager: ObservableObject {
     }
 
     private func applyGripperOverlay(to image: CIImage) -> CIImage {
-        guard shouldApplyGripperOverlay() else {
+        guard shouldApplyGripperOverlayToModelInput() else {
             if saveDebugFrames {
                 print("DEBUG: Gripper overlay skipped - enableGripperOverlay: \(enableGripperOverlay), isUSBStreaming: \(isUSBStreamingActive)")
             }
@@ -931,7 +943,7 @@ class MLInferenceManager: ObservableObject {
                 let scaledCIImage = CIImage(cvPixelBuffer: outputBuffer)
                 var finalImage = scaledCIImage
                 
-                if shouldApplyGripperOverlay(), let gripperOverlay = getCurrentGripperOverlay() {
+                if shouldApplyGripperOverlayToModelInput(), let gripperOverlay = getCurrentGripperOverlay() {
                     finalImage = applyGripperOverlayCoreImage(to: scaledCIImage, overlay: gripperOverlay)
                 }
                 
@@ -1178,7 +1190,10 @@ class MLInferenceManager: ObservableObject {
             self?.lastResult = result
             
             // Only enable visualization when NOT in USB streaming mode (recording mode only)
-            if let arManager = self?.arVisualizationManager, jointPositions.count >= 6, self?.isUSBStreamingActive != true {
+            if let arManager = self?.arVisualizationManager,
+               jointPositions.count >= 6,
+               self?.isUSBStreamingActive != true,
+               arManager.isVisualizationEnabled {
                 arManager.ensureVisualizationReady()
                 arManager.updatePoseFromMLOutput(jointPositions, timestamp: self?.lastInferenceTime ?? CACurrentMediaTime())
             }
@@ -1334,25 +1349,6 @@ class MLInferenceManager: ObservableObject {
     func setInferenceFrequency(_ frequency: InferenceFrequency) {
         inferenceFrequency = frequency
         print("Inference frequency: \(frequency.displayName)")
-    }
-    
-    // MARK: - Frequency Synchronization
-    func synchronizeFrequencyWithVisualization() {
-        // Convert MLInferenceManager frequency to ARVisualizationManager frequency
-        let correspondingVisualizationFrequency: VisualizationFrequency
-        switch inferenceFrequency {
-        case .high:
-            correspondingVisualizationFrequency = .high
-        case .medium:
-            correspondingVisualizationFrequency = .medium
-        case .low:
-            correspondingVisualizationFrequency = .low
-        case .minute:
-            correspondingVisualizationFrequency = .minute
-        }
-        
-        arVisualizationManager?.setVisualizationFrequency(correspondingVisualizationFrequency)
-        print("Synchronized frequencies: \(inferenceFrequency.displayName)")
     }
     
 } 

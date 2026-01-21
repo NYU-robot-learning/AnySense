@@ -157,6 +157,10 @@ class ARViewModel: ObservableObject{
     @Published var isRecording: Bool = false
     @Published var recordingMode: RecordingMode = .none
     private var currentRecordingFiles: RecordingFiles?
+    
+    // MARK: - Inference Playback (no file saving)
+    @Published var isInferencePlaying: Bool = false
+    @Published var isInferenceEpisodeFinished: Bool = false
 
 
 
@@ -542,6 +546,117 @@ class ARViewModel: ObservableObject{
         print("Starting AR session for ARViewContainer")
         setupARSession()
     }
+
+    // MARK: - Inference Playback (no file saving)
+    @MainActor
+    func startInferencePlayback() {
+        // MARK: - State Validation Guards
+        guard !isInferencePlaying else {
+            print("Inference playback already active - ignoring start request")
+            return
+        }
+        
+        guard !isUSBStreamingActive else {
+            print("Cannot start inference playback while USB streaming is active")
+            return
+        }
+        
+        guard !isRecording else {
+            print("Cannot start inference playback while recording is active")
+            return
+        }
+        
+        guard recordingMode == .none else {
+            print("Another recording mode active: \(recordingMode) - stopping first")
+            stopAllActivities()
+            // stopAllActivities resets state; if it couldn't, bail safely
+            guard recordingMode == .none else { return }
+            return startInferencePlayback()
+        }
+        
+        // Ensure AR session is running
+        startARSessionIfNeeded()
+        
+        // MARK: - Update Centralized State
+        recordingMode = .mlInference
+        isInferencePlaying = true
+        isInferenceEpisodeFinished = false
+        
+        // Reset ML inference state for a new playback session (keep goal)
+        mlManager?.resetInferenceState()
+        mlManager?.latestResult = nil
+        mlManager?.lastResult = nil
+        
+        // Reset visualization state (fresh origin/targets for new episode)
+        arVisualizationManager.stopRecordingVisualization()
+        arVisualizationManager.enableVisualization()
+        arVisualizationManager.ensureVisualizationReady()
+        
+        let fps = userFPS ?? 30.0
+        displayLink = CADisplayLink(target: self, selector: #selector(runInferencePlaybackTick))
+        displayLink?.preferredFrameRateRange = CAFrameRateRange(
+            minimum: Float(fps),
+            maximum: Float(fps),
+            preferred: Float(fps)
+        )
+        displayLink?.add(to: .main, forMode: .common)
+        
+        print("Inference playback started")
+    }
+    
+    @MainActor
+    func stopInferencePlayback(reset: Bool = true) {
+        guard isInferencePlaying || recordingMode == .mlInference else {
+            return
+        }
+        
+        displayLink?.invalidate()
+        displayLink = nil
+        
+        isInferencePlaying = false
+        isInferenceEpisodeFinished = false
+        
+        if recordingMode == .mlInference {
+            recordingMode = .none
+        }
+        
+        if reset {
+            mlManager?.resetInferenceState()
+            mlManager?.latestResult = nil
+            mlManager?.lastResult = nil
+            arVisualizationManager.stopRecordingVisualization()
+            arVisualizationManager.enableVisualization()
+            arVisualizationManager.ensureVisualizationReady()
+            // Ensure episode-finished state clears even if last result was CLOSED
+            arVisualizationManager.setGripperState(isClosed: false)
+        }
+        
+        print("Inference playback stopped")
+    }
+    
+    @MainActor
+    @objc private func runInferencePlaybackTick(link: CADisplayLink) {
+        // Avoid doing any work if playback has ended or mode changed
+        guard isInferencePlaying, recordingMode == .mlInference else { return }
+        
+        // Episode finished -> stop processing frames (but keep "Stop" available for reset)
+        if arVisualizationManager.isGripperClosed {
+            if !isInferenceEpisodeFinished {
+                isInferenceEpisodeFinished = true
+                print("Episode finished (gripper closed) - waiting for reset")
+            }
+            return
+        }
+        
+        guard let currentFrame = session.currentFrame else { return }
+        let rgbPixelBuffer = currentFrame.capturedImage
+        
+        if let mlManager = mlManager {
+            Task { @MainActor in
+                mlManager.performInference(on: rgbPixelBuffer, arFrame: currentFrame, timestamp: CACurrentMediaTime())
+            }
+        }
+    }
     
     @MainActor
     func startUSBStreaming() {
@@ -858,9 +973,6 @@ class ARViewModel: ObservableObject{
         // Reset ML inference state for new recording
         mlManager?.resetInferenceState()
 
-        // Start AR pose visualization with origin at current camera position
-        arVisualizationManager.startRecordingVisualization()
-
         assetWriter?.startWriting()
         startTime = CMTimeMake(value: Int64(CACurrentMediaTime() * 1000), timescale: 1000)
         assetWriter?.startSession(atSourceTime: startTime!)
@@ -941,12 +1053,17 @@ class ARViewModel: ObservableObject{
     @MainActor
     func stopAllActivities() {
         // If nothing is active, avoid redundant cleanup work
-        if !isRecording && !isUSBStreamingActive && recordingMode == .none && displayLink == nil {
+        if !isRecording && !isUSBStreamingActive && !isInferencePlaying && recordingMode == .none && displayLink == nil {
             print("No active activities to stop")
             return
         }
 
         print("Stopping all activities...")
+        
+        // Stop inference playback if active
+        if isInferencePlaying || recordingMode == .mlInference {
+            stopInferencePlayback(reset: true)
+        }
 
         // Stop recording if active
         if isRecording {
@@ -971,6 +1088,8 @@ class ARViewModel: ObservableObject{
         // Reset state
         recordingMode = .none
         currentRecordingFiles = nil
+        isInferencePlaying = false
+        isInferenceEpisodeFinished = false
 
         print("All activities stopped")
     }

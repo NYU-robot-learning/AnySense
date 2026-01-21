@@ -30,29 +30,6 @@ enum TargetState {
     case reached  // Green target
 }
 
-// MARK: - Visualization Frequency
-enum VisualizationFrequency: CaseIterable {
-    case high, medium, low, minute
-    
-    var interval: TimeInterval {
-        switch self {
-        case .high: return 0.0
-        case .medium: return 1.0 
-        case .low: return 10.0
-        case .minute: return 60.0
-        }
-    }
-    
-    var displayName: String {
-        switch self {
-        case .high: return "High (30 FPS)"
-        case .medium: return "Medium (1 Hz)"
-        case .low: return "Low (0.1 FPS)"
-        case .minute: return "Minute (1/min)"
-        }
-    }
-}
-
 // MARK: - AR Visualization Manager
 @MainActor
 class ARVisualizationManager: ObservableObject {
@@ -60,7 +37,6 @@ class ARVisualizationManager: ObservableObject {
     // MARK: - Published Properties
     @Published var isVisualizationEnabled: Bool = false
     @Published var actionState: ActionState = .waiting
-    @Published var visualizationFrequency: VisualizationFrequency = .medium
     
     // MARK: - Private Properties  
     private var arView: ARView?
@@ -199,8 +175,8 @@ class ARVisualizationManager: ObservableObject {
 
     // MARK: - Initialization helper
     func ensureVisualizationReady() {
+        guard isVisualizationEnabled else { return }
         if !hasEstablishedOrigin { establishWorldOrigin() }
-        if !isVisualizationEnabled { enableVisualization() }
         if targetPose != nil && goalPointEntity == nil && worldOriginAnchor != nil {
             updateGoalPointVisualization()
         }
@@ -351,12 +327,6 @@ class ARVisualizationManager: ObservableObject {
         actionState = .waiting
     }
     
-    // MARK: - Frequency Control Methods
-    func setVisualizationFrequency(_ frequency: VisualizationFrequency) {
-        visualizationFrequency = frequency
-        print("AR Visualization frequency set to: \(frequency.displayName)")
-    }
-    
     // MARK: - Proximity Configuration
     func setProximityThreshold(_ threshold: Float) {
         // Allow adjusting the merge distance threshold if needed
@@ -447,7 +417,6 @@ class ARVisualizationManager: ObservableObject {
     func setTargetPose(_ worldPoint: SIMD3<Float>) {
         targetPose = worldPoint
         ensureVisualizationReady()
-        updateGoalPointVisualization()
     }
     
     func clearTargetPose() {
