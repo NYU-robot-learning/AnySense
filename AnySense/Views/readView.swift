@@ -29,7 +29,6 @@ struct ReadViewOverlay: View {
     @State private var isRecordedOnce: Bool = false
     
     var body: some View {
-        let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
         GeometryReader { geometry in
             let screenWidth = geometry.size.width
             let screenHeight = geometry.size.height
@@ -199,8 +198,19 @@ struct ReadViewOverlay: View {
                 )
             }
         }
-        .onChange(of: appStatus.rgbdVideoStreaming) { oldMode, newMode in
-            handleStreamingModeChange(from: oldMode, to: newMode)
+        .alert("Depth Data Unavailable", isPresented: Binding(
+            get: { arViewModel.depthStatus.showAlert },
+            set: { isPresented in
+                if !isPresented {
+                    arViewModel.depthStatus.dismissAlert()
+                }
+            }
+        )) {
+            Button("OK") {
+                arViewModel.depthStatus.dismissAlert()
+            }
+        } message: {
+            Text("This device does not support metric scene depth, so depth videos and raw metric depth frames will not be recorded.")
         }
         .onAppear {
             initCode()
@@ -217,18 +227,7 @@ struct ReadViewOverlay: View {
     private func initCode() {
         arViewModel.isColorMapOpened = appStatus.colorMapTrigger
         arViewModel.userFPS = appStatus.animationFPS
-    }
-    
-    private func handleStreamingModeChange(from oldMode: StreamingMode, to newMode: StreamingMode) {
-        if arViewModel.isRecording {
-            toggleRecording(mode: oldMode)
-        }
-        switch (oldMode, newMode) {
-        case (_, .off):
-            arViewModel.killUSBStreaming()
-        case (_, .usb):
-            arViewModel.setupUSBStreaming()
-        }
+        arViewModel.ifAudioEnable = appStatus.ifAudioRecordingEnabled
     }
     
     func toggleRecording(mode: StreamingMode) {
@@ -288,4 +287,3 @@ struct ReadViewOverlay: View {
     ReadViewOverlay(arViewModel: ARViewModel())
         .environmentObject(AppInformation())
 }
-    

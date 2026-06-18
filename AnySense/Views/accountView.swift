@@ -69,7 +69,13 @@ struct SettingsView : View{
                     .padding(.vertical, 5)
                     .padding(.vertical, 5)
                     HStack{
-                        Toggle("Audio recording enabled", isOn: $appStatus.ifAudioRecordingEnabled)
+                        Toggle("Audio recording enabled", isOn: Binding(
+                            get: { appStatus.ifAudioRecordingEnabled },
+                            set: { enabled in
+                                appStatus.ifAudioRecordingEnabled = enabled
+                                arViewModel.ifAudioEnable = enabled
+                            }
+                        ))
                     }
                     HStack{
                             Text("Buttons haptic feedback")

@@ -62,34 +62,26 @@ struct MainPage: View {
             }
         }
         .onAppear {
-            // Start AR session on initial load
-            if isARTabActive {
-                arViewModel.startARSessionIfNeeded()
-                print("App launched - starting AR session for default tab \(selection)")
-            }
-            
-            // Inference is now tab-scoped: enable only on Inference tab (or when USB streaming is active)
+            syncRecordingSettings()
+            syncARSessionForSelectedTab(selection)
             syncInferenceForSelectedTab(selection)
         }
-        .onChange(of: selection) { newTab in
-            let isARTab = (newTab == 1 || newTab == 2)
-            
-            if isARTab {
-                // Switching to AR tab - resume session without resetting tracking
-                arViewModel.resumeARSession()
-                print("Switched to AR tab \(newTab) - resuming AR session")
-            } else {
-                // Switching away from AR tabs - pause session
-                arViewModel.pauseARSession()
-                print("Switched to non-AR tab \(newTab) - pausing AR session")
-            }
-            
-            // Inference is now tab-scoped: enable only on Inference tab (or when USB streaming is active)
+        .onChange(of: selection) { _, newTab in
+            syncARSessionForSelectedTab(newTab)
             syncInferenceForSelectedTab(newTab)
         }
+        .onChange(of: arViewModel.isRecording) { _, _ in
+            syncARSessionForSelectedTab(selection)
+        }
         .onChange(of: arViewModel.isUSBStreamingActive) { _, _ in
-            // If USB streaming starts/stops, resync inference enablement without requiring a tab change
+            syncARSessionForSelectedTab(selection)
             syncInferenceForSelectedTab(selection)
+        }
+        .onChange(of: appStatus.ifAudioRecordingEnabled) { _, _ in
+            syncRecordingSettings()
+        }
+        .onChange(of: appStatus.rgbdVideoStreaming) { oldMode, newMode in
+            handleStreamingModeChange(from: oldMode, to: newMode)
         }
         .onChange(of: phase) { newPhase in
             switch newPhase {
@@ -98,10 +90,7 @@ struct MainPage: View {
                 arViewModel.pauseARSession()
                 print("App backgrounded - all activities stopped")
             case .active:
-                if isARTabActive {
-                    arViewModel.resumeARSession()
-                    print("App active - resuming AR session for tab \(selection)")
-                }
+                syncARSessionForSelectedTab(selection)
             case .inactive:
                 print("App inactive")
             @unknown default:
@@ -110,6 +99,47 @@ struct MainPage: View {
         }
     }
     
+    @MainActor
+    private func syncRecordingSettings() {
+        arViewModel.ifAudioEnable = appStatus.ifAudioRecordingEnabled
+    }
+
+    private func shouldKeepARSessionRunning(tab: Int) -> Bool {
+        tab == 1 || tab == 2 || arViewModel.isRecording || arViewModel.isUSBStreamingActive
+    }
+
+    @MainActor
+    private func syncARSessionForSelectedTab(_ tab: Int) {
+        if shouldKeepARSessionRunning(tab: tab) {
+            arViewModel.resumeARSession()
+        } else {
+            arViewModel.pauseARSession()
+        }
+    }
+
+    @MainActor
+    private func handleStreamingModeChange(from _: StreamingMode, to newMode: StreamingMode) {
+        if arViewModel.isRecording {
+            if arViewModel.getBLEManagerInstance().ifConnected {
+                arViewModel.stopBluetoothRecording()
+            }
+            arViewModel.stopRecording()
+        }
+
+        switch newMode {
+        case .off:
+            if arViewModel.isUSBStreamingActive {
+                arViewModel.stopUSBStreaming()
+            }
+            arViewModel.killUSBStreaming()
+        case .usb:
+            arViewModel.setupUSBStreaming()
+        }
+
+        syncARSessionForSelectedTab(selection)
+        syncInferenceForSelectedTab(selection)
+    }
+
     @MainActor
     private func syncInferenceForSelectedTab(_ tab: Int) {
         // Inference is active only in the Inference tab, except when USB streaming explicitly needs it.

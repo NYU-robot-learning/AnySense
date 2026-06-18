@@ -123,8 +123,14 @@ class DepthStatus: ObservableObject {
     @Published var showAlert: Bool = false
     
     public func setUnavailable() {
+        guard isDepthAvailable else { return }
         isDepthAvailable = false
         showAlert = true
+    }
+
+    public func setAvailable() {
+        isDepthAvailable = true
+        showAlert = false
     }
 
     public func dismissAlert() {
@@ -157,6 +163,7 @@ class ARViewModel: ObservableObject{
     @Published var isRecording: Bool = false
     @Published var recordingMode: RecordingMode = .none
     private var currentRecordingFiles: RecordingFiles?
+    private var recordingAudioEnabled = false
     
     // MARK: - Inference Playback (no file saving)
     @Published var isInferencePlaying: Bool = false
@@ -166,7 +173,7 @@ class ARViewModel: ObservableObject{
 
     public var userFPS: Double?
     public var isColorMapOpened = false
-    public var ifAudioEnable = false
+    public var ifAudioEnable = true
     private var usbManager = USBManager()
     
     private var orientation: UIInterfaceOrientation = .portrait
@@ -350,6 +357,9 @@ class ARViewModel: ObservableObject{
         
         if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
             configuration.frameSemantics.insert(.sceneDepth)
+            depthStatus.setAvailable()
+        } else {
+            depthStatus.setUnavailable()
         }
         configuration.planeDetection = [.horizontal, .vertical]
         if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
@@ -365,16 +375,19 @@ class ARViewModel: ObservableObject{
 
     
     private func setupAudioSession() {
-        guard let audioDevice = AVCaptureDevice.default(for: .audio),
-              let audioDeviceInput = try? AVCaptureDeviceInput(device: audioDevice) else {
-              return
+        if audioSession.inputs.isEmpty {
+            guard let audioDevice = AVCaptureDevice.default(for: .audio),
+                  let audioDeviceInput = try? AVCaptureDeviceInput(device: audioDevice),
+                  audioSession.canAddInput(audioDeviceInput) else {
+                return
+            }
+            audioSession.addInput(audioDeviceInput)
         }
-        audioSession.addInput(audioDeviceInput)
         
+        guard !audioSession.outputs.contains(where: { $0 is AVCaptureAudioDataOutput }) else { return }
         let audioOutput = AVCaptureAudioDataOutput()
-        if audioSession.canAddOutput(audioOutput) {
-            audioSession.addOutput(audioOutput)
-        }
+        guard audioSession.canAddOutput(audioOutput) else { return }
+        audioSession.addOutput(audioOutput)
     }
     
     private func setupTransforms() {
@@ -791,15 +804,9 @@ class ARViewModel: ObservableObject{
         CVPixelBufferLockBaseAddress(depthPixelBuffer, .readOnly)
         CVPixelBufferLockBaseAddress(outputBuffer, [])
 
-        // Try optimized depth processing
-        if canUseOptimizedDepthTransform(for: depthPixelBuffer) {
-            processDepthOptimized(depthPixelBuffer, outputBuffer: outputBuffer)
-        } else {
-            // Fallback to Core Image
-            let depthCiImage = CIImage(cvPixelBuffer: depthPixelBuffer)
-            let depthTransformedImage = depthCiImage.transformed(by: self.combinedDepthTransform ?? CGAffineTransform.identity)
-            self.ciContext.render(depthTransformedImage, to: outputBuffer)
-        }
+        let depthCiImage = CIImage(cvPixelBuffer: depthPixelBuffer)
+        let depthTransformedImage = depthCiImage.transformed(by: self.combinedDepthTransform ?? CGAffineTransform.identity)
+        self.ciContext.render(depthTransformedImage, to: outputBuffer)
 
         let compressedData = self.usbManager.compressData(from: outputBuffer, isDepth: isDepth)
 
@@ -956,12 +963,19 @@ class ARViewModel: ObservableObject{
             stopAllActivities()
             return nil
         }
+
+        let audioEnabledForRecording = ifAudioEnable
+        if audioEnabledForRecording {
+            setupAudioSession()
+        }
+        recordingAudioEnabled = audioEnabledForRecording
         
         // Ensure transforms are computed before recording
         ensureTransformsReady()
 
         guard let saveFileNames = setupRecording() else {
             print("Failed to setup recording")
+            recordingAudioEnabled = false
             return nil
         }
 
@@ -977,7 +991,7 @@ class ARViewModel: ObservableObject{
         startTime = CMTimeMake(value: Int64(CACurrentMediaTime() * 1000), timescale: 1000)
         assetWriter?.startSession(atSourceTime: startTime!)
 
-        let audioEnabled = ifAudioEnable
+        let audioEnabled = recordingAudioEnabled
         let audioSession = self.audioSession
         DispatchQueue.global(qos: .background).async {
             if audioEnabled {
@@ -1017,7 +1031,8 @@ class ARViewModel: ObservableObject{
         // Reset ML inference state when stopping
         mlManager?.resetInferenceState()
 
-        if(ifAudioEnable) {
+        let audioEnabled = recordingAudioEnabled
+        if audioEnabled {
             audioSession.stopRunning()
             audioInput?.markAsFinished()
         }
@@ -1044,6 +1059,7 @@ class ARViewModel: ObservableObject{
         isRecording = false
         recordingMode = .none
         currentRecordingFiles = nil
+        recordingAudioEnabled = false
 
         updateDemoCounter()
         print("Recording stopped successfully")
@@ -1067,6 +1083,7 @@ class ARViewModel: ObservableObject{
 
         // Stop recording if active
         if isRecording {
+            stopBluetoothRecording()
             stopRecording()
         }
 
@@ -1108,10 +1125,11 @@ class ARViewModel: ObservableObject{
             "Tactile": "Tactile_\(timestamp).bin"
         ]
 
-        // Only include image directories if debug frame saving is enabled
-        if mlManager?.saveDebugFrames == true {
+        let shouldSaveDebugFrames = mlManager?.saveDebugFrames == true
+
+        // RGB image folders are debug output. Metric depth binaries are core recording data.
+        if shouldSaveDebugFrames {
             fileNames["RGBImages"] = "RGB_Images_\(timestamp)"
-            fileNames["DepthImages"] = isColorMapOpened ? "Depth_Colored_Images_\(timestamp)" : "Depth_Images_\(timestamp)"
         }
         
         let generalDataDirectory = getDocumentsDirect().appendingPathComponent(timestamp)
@@ -1128,21 +1146,22 @@ class ARViewModel: ObservableObject{
         let poseTextURL = generalDataDirectory.appendingPathComponent(poseFileName)
         let tactileFileURL = generalDataDirectory.appendingPathComponent(tactileFileName)
 
-        // Only create image directories if debug frame saving is enabled
         var rgbImagesDirectory: URL?
-        var depthImagesDirectory: URL?
-        if mlManager?.saveDebugFrames == true,
-           let rgbDirName = fileNames["RGBImages"],
-           let depthDirName = fileNames["DepthImages"] {
+        if shouldSaveDebugFrames,
+           let rgbDirName = fileNames["RGBImages"] {
             rgbImagesDirectory = generalDataDirectory.appendingPathComponent(rgbDirName)
-            depthImagesDirectory = generalDataDirectory.appendingPathComponent(depthDirName)
         }
+        let depthImagesDirectory = generalDataDirectory.appendingPathComponent(
+            isColorMapOpened ? "Depth_Colored_Images_\(timestamp)" : "Depth_Images_\(timestamp)"
+        )
 
         do {
             try FileManager.default.createDirectory(at: generalDataDirectory, withIntermediateDirectories: true)
-            if mlManager?.saveDebugFrames == true,
-               let depthDir = depthImagesDirectory {
-                try FileManager.default.createDirectory(at: depthDir, withIntermediateDirectories: true)
+            if let rgbDir = rgbImagesDirectory {
+                try FileManager.default.createDirectory(at: rgbDir, withIntermediateDirectories: true)
+            }
+            if depthStatus.isDepthAvailable {
+                try FileManager.default.createDirectory(at: depthImagesDirectory, withIntermediateDirectories: true)
             }
             try createFile(fileURL: poseTextURL)
         } catch {
@@ -1150,7 +1169,7 @@ class ARViewModel: ObservableObject{
         }
         
         self.rgbDirect = rgbImagesDirectory
-        self.depthDirect = depthImagesDirectory
+        self.depthDirect = depthStatus.isDepthAvailable ? depthImagesDirectory : nil
         self.poseURL = poseTextURL
         self.generalURL = generalDataDirectory
         
@@ -1177,7 +1196,7 @@ class ARViewModel: ObservableObject{
             self.videoInput?.expectsMediaDataInRealTime = true
             self.assetWriter?.add(videoInput!)
             
-            if(ifAudioEnable) {
+            if recordingAudioEnabled {
                 self.audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioOutputSettings)
                 self.audioInput?.expectsMediaDataInRealTime = true
                 self.assetWriter?.add(audioInput!)
@@ -1194,8 +1213,9 @@ class ARViewModel: ObservableObject{
             
             self.pixelBufferAdapter = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: videoInput!, sourcePixelBufferAttributes: rgbAttributes)
             
-            // Setup depth recording if supported
-            setupDepthRecording(depthVideoURL: depthVideoURL)
+            if self.depthStatus.isDepthAvailable {
+                setupDepthRecording(depthVideoURL: depthVideoURL)
+            }
             
             self.poseFileHandle = try FileHandle(forWritingTo: poseTextURL)
             try poseFileHandle?.seekToEnd()
@@ -1208,7 +1228,7 @@ class ARViewModel: ObservableObject{
             depthFileName: depthVideoURL,
             timestamp: timestamp,
             rgbImagesDirectory: rgbImagesDirectory,
-            depthImagesDirectory: depthImagesDirectory,
+            depthImagesDirectory: depthStatus.isDepthAvailable ? depthImagesDirectory : nil,
             poseFile: poseTextURL,
             generalDataDirectory: timestamp,
             tactileFile: tactileFileURL
@@ -1403,58 +1423,6 @@ class ARViewModel: ObservableObject{
         return context.makeImage()
     }
 
-    private func canUseOptimizedDepthTransform(for pixelBuffer: CVPixelBuffer) -> Bool {
-        guard let transform = combinedDepthTransform else { return false }
-        // Check if transform is simple enough for vImage optimization
-        let hasRotation = abs(transform.b) > 0.001 || abs(transform.c) > 0.001
-        return !hasRotation
-    }
-
-    private func processDepthOptimized(_ inputBuffer: CVPixelBuffer, outputBuffer: CVPixelBuffer) {
-        // Simple memcpy for identity or simple scaling transforms
-        // This avoids Core Image overhead for depth data
-
-        let inputWidth = CVPixelBufferGetWidth(inputBuffer)
-        let inputHeight = CVPixelBufferGetHeight(inputBuffer)
-        let outputWidth = CVPixelBufferGetWidth(outputBuffer)
-        let outputHeight = CVPixelBufferGetHeight(outputBuffer)
-
-        guard let inputData = CVPixelBufferGetBaseAddress(inputBuffer),
-              let outputData = CVPixelBufferGetBaseAddress(outputBuffer) else {
-            return
-        }
-
-        let inputBytesPerRow = CVPixelBufferGetBytesPerRow(inputBuffer)
-        let outputBytesPerRow = CVPixelBufferGetBytesPerRow(outputBuffer)
-
-        if inputWidth == outputWidth && inputHeight == outputHeight {
-            // Direct copy for same-size buffers
-            let totalBytes = min(inputHeight * inputBytesPerRow, outputHeight * outputBytesPerRow)
-            memcpy(outputData, inputData, totalBytes)
-        } else {
-            // Use vImage for scaling if available
-            var sourceBuffer = vImage_Buffer(
-                data: inputData,
-                height: vImagePixelCount(inputHeight),
-                width: vImagePixelCount(inputWidth),
-                rowBytes: inputBytesPerRow
-            )
-
-            var destBuffer = vImage_Buffer(
-                data: outputData,
-                height: vImagePixelCount(outputHeight),
-                width: vImagePixelCount(outputWidth),
-                rowBytes: outputBytesPerRow
-            )
-
-            // Use vImage scaling for better performance than Core Image
-            let error = vImageScale_Planar16F(&sourceBuffer, &destBuffer, nil, vImage_Flags(kvImageNoFlags))
-            if error != kvImageNoError {
-                print("vImage scaling failed: \(error)")
-            }
-        }
-    }
-    
     private func saveBinaryDepthData(depthPixelBuffer: CVPixelBuffer) {
 //      Save metric depth data as binary file
         let width = CVPixelBufferGetWidth(depthPixelBuffer)
@@ -1469,7 +1437,7 @@ class ARViewModel: ObservableObject{
         let dataSize = width * height * MemoryLayout<Float32>.size
         let data = Data(bytes: floatBuffer, count: dataSize)
         
-        // Save binary data to a file (only if debug frame saving is enabled)
+        // Save metric depth data as core recording output.
         if let depthDir = self.depthDirect {
             let fileURL = depthDir.appendingPathComponent("\(Int64(Date().timeIntervalSince1970*1000)).bin")
             do {

@@ -41,6 +41,7 @@ struct ContentView: View {
                 }
             }
             .onAppear {
+                syncRecordingSettings()
                 checkPermissions()
                 setupModelManager()
             }
@@ -62,6 +63,7 @@ struct ContentView: View {
     private func checkPermissions() {
         PermissionsManager.checkCameraPermissions { granted in
             if granted {
+                syncRecordingSettings()
                 arViewModel.setupARSession()
                 hasPermissions = true
             } else {
@@ -73,6 +75,10 @@ struct ContentView: View {
     private func setupModelManager() {
         // Initialize the ML inference manager with model manager
         arViewModel.initializeMLManager(with: modelManager)
+    }
+
+    private func syncRecordingSettings() {
+        arViewModel.ifAudioEnable = appStatus.ifAudioRecordingEnabled
     }
     
     private func openAppSettings() {
@@ -108,7 +114,7 @@ class AppInformation : ObservableObject{
     @Published var gridProjectionTrigger: GridMode = .off
     @Published var colorMapTrigger: Bool = false
     @Published var ifBluetoothConnected: Bool = false
-    @Published var ifAudioRecordingEnabled: Bool = false
+    @Published var ifAudioRecordingEnabled: Bool = true
 
     // MARK: - Inference Settings
     @Published var showGripperOverlay: Bool = true
@@ -120,5 +126,4 @@ class AppInformation : ObservableObject{
     ContentView()
         .environmentObject(AppInformation())
 }
-
 
