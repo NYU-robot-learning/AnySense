@@ -9,8 +9,8 @@ import SwiftUI
 import CoreBluetooth
 
 struct singleBLEPeripheral: View {
-    @EnvironmentObject var bluetoothManager: BluetoothManager
     @EnvironmentObject var appStatus: AppInformation
+    @ObservedObject var arViewModel: ARViewModel
     @State private var isConnected = false
     let name: String
     let uuid: UUID
@@ -35,7 +35,7 @@ struct singleBLEPeripheral: View {
         UIImpactFeedbackGenerator(style: appStatus.hapticFeedbackLevel).impactOccurred()
         
         if !isConnected{
-            bluetoothManager.connectToPeripheral(withUUID: uuid) { result in
+            arViewModel.getBLEManagerInstance().connectToPeripheral(withUUID: uuid) { result in
                 switch result {
                 case .success(let connectedPeripheral):
                     print("Successfully connected to: \(connectedPeripheral.name ?? "Unknown Device")")
@@ -46,7 +46,7 @@ struct singleBLEPeripheral: View {
             appStatus.ifBluetoothConnected = true
         } else {
             appStatus.ifBluetoothConnected = false
-            bluetoothManager.disconnectFromDevice()
+            arViewModel.getBLEManagerInstance().disconnectFromDevice()
         }
         
         isConnected = !isConnected
@@ -55,19 +55,21 @@ struct singleBLEPeripheral: View {
 
 struct PeripheralView: View {
     @EnvironmentObject var appStatus : AppInformation
-    @EnvironmentObject var bluetoothManager: BluetoothManager
+    @ObservedObject var arViewModel: ARViewModel
+    @ObservedObject var bluetoothManager: BluetoothManager
     var body: some View {
         VStack{
             Text("Devices Detected")
                 .font(.body)
-                .frame(width: 500.0, height: 50)
-                .ignoresSafeArea()
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
                 .foregroundStyle(.deviceWord)
                 .background(.deviceTop)
                 .padding(.top, 5)
             List(Array(bluetoothManager.discoveredPeripherals.keys), id: \.self) { uuid in
                 if let peripheral = bluetoothManager.discoveredPeripherals[uuid] {
                     singleBLEPeripheral(
+                        arViewModel: arViewModel,
                         name: peripheral.name ?? "Unknown Device",
                         uuid: peripheral.identifier
                     )
@@ -76,10 +78,7 @@ struct PeripheralView: View {
             .scrollContentBackground(.hidden)
             .background(Color.customizedBackground)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.customizedBackground)
     }
-}
-
-#Preview {
-    PeripheralView().environmentObject(AppInformation()).environmentObject(BluetoothManager())
 }

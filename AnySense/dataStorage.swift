@@ -75,14 +75,50 @@ struct ImageFile: FileDocument {
     
         
 }
+
+// MARK: - ML Model File Document
+struct MLModelFile: FileDocument {
+    var url: URL
+    
+    static var readableContentTypes: [UTType] { 
+        // Support .mlmodel, .mlmodelc, and .mlpackage files
+        [
+            UTType(filenameExtension: "mlmodel")!,
+            UTType(filenameExtension: "mlmodelc")!,
+            UTType(filenameExtension: "mlpackage")!
+        ]
+    }
+    static var writableContentTypes: [UTType] { 
+        [
+            UTType(filenameExtension: "mlmodel")!,
+            UTType(filenameExtension: "mlmodelc")!,
+            UTType(filenameExtension: "mlpackage")!
+        ]
+    }
+    
+    init(url: URL) {
+        self.url = url
+    }
+    
+    init(configuration: ReadConfiguration) throws {
+        self.url = URL(fileURLWithPath: "")
+    }
+    
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        return try FileWrapper(url: url, options: .immediate)
+    }
+}
+
 enum FileElement {
     case videoFile(VideoFile)
     case textFile(TextFile)
     case directory(SubLevelDirectory)
+    case mlModelFile(MLModelFile)  // Add ML model support
 }
 
 enum FileElementSub {
     case imageFile(ImageFile)
+    case mlModelFile(MLModelFile)  // Add ML model support to sub-level
 }
 
 struct SubLevelDirectory: FileDocument{
@@ -98,8 +134,10 @@ struct SubLevelDirectory: FileDocument{
         do{
             let contents = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
             for content in contents{
-                if content.pathExtension.lowercased() == "ipeg" || content.pathExtension.lowercased() == "jpg" {
+                if content.pathExtension.lowercased() == "jpeg" || content.pathExtension.lowercased() == "jpg" {
                     self.containedFiles.append(.imageFile(ImageFile(url: content)))
+                } else if ["mlmodel","mlmodelc","mlpackage"].contains(content.pathExtension.lowercased()) {
+                    self.containedFiles.append(.mlModelFile(MLModelFile(url: content)))
                 }
             }
         }catch{
@@ -119,6 +157,9 @@ struct SubLevelDirectory: FileDocument{
         
             case .imageFile(let imageFile):
                 let fileWrapper = try imageFile.fileWrapper(configuration: configuration)
+                dirWrapper.addFileWrapper(fileWrapper)
+            case .mlModelFile(let mlModelFile):
+                let fileWrapper = try mlModelFile.fileWrapper(configuration: configuration)
                 dirWrapper.addFileWrapper(fileWrapper)
             }
         }
@@ -164,6 +205,10 @@ struct SubLevelDirectory: FileDocument{
                     let directoryWrapper = try directory.fileWrapper(configuration: configuration)
                     directoryWrapper.preferredFilename = directory.url.lastPathComponent
                     folderWrapper.addFileWrapper(directoryWrapper)
+                case .mlModelFile(let mlModelFile):
+                    let fileWrapper = try mlModelFile.fileWrapper(configuration: configuration)
+                    fileWrapper.preferredFilename = mlModelFile.url.lastPathComponent
+                    folderWrapper.addFileWrapper(fileWrapper)
                 }
             }
             

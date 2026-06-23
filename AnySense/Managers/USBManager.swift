@@ -21,7 +21,7 @@ struct Record3DHeader {
     var rgbWidth: UInt32
     var rgbHeight: UInt32
     var depthWidth: UInt32
-    var depthHeight: UInt32
+    var depthHeight: UInt32 
     var confidenceWidth: UInt32
     var confidenceHeight: UInt32
     var rgbSize: UInt32
@@ -29,6 +29,7 @@ struct Record3DHeader {
     var confidenceMapSize: UInt32
     var miscSize: UInt32
     var deviceType: UInt32
+    // jointActions are always 28 bytes (7 floats), embedded in message body after RGB data
 }
 
 struct IntrinsicMatrixCoeffs {
@@ -61,24 +62,21 @@ class USBManager {
             listener?.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
-                    print("Server ready and listening on port 1337")
+                    print("USB listener ready")
                 case .failed(let error):
-                    print("Listener failed with error: \(error)")
+                    print("USB listener failed: \(error)")
                 default:
                     break
                 }
             }
 
             listener?.newConnectionHandler = { [weak self] connection in
-                print("Connection received")
                 self?.handleConnection(connection: connection)
-
-//                self?.sendData(connection: connection, message: "Hello from iPhone!")
             }
 
             listener?.start(queue: .main)
         } catch {
-            print("Failed to start listener: \(error)")
+            // Failed to start listener
         }
     }
     
@@ -86,14 +84,12 @@ class USBManager {
         // Cancel the listener if it exists
         if let listener = listener {
             listener.cancel()
-            print("Listener cancelled")
         }
         listener = nil
 
         // Cancel the active connection if it exists
         if let connection = activeConnection {
             connection.cancel()
-            print("Connection cancelled")
         }
         activeConnection = nil
     }
@@ -108,14 +104,14 @@ class USBManager {
         intrinsicMatData: Data,
         poseData: Data,
         rgbImageData: Data,
+        jointActionsData: Data,  // Always exactly 28 bytes (7 floats)
         compressedDepthData: Data? = nil,
         compressedConfData: Data? = nil
     ) {
         guard let activeConnection = activeConnection else {
-            print("No active connection. Cannot send data.")
             return
         }
-        var messageBody = record3dHeaderData + intrinsicMatData + poseData + rgbImageData
+        var messageBody = record3dHeaderData + intrinsicMatData + poseData + rgbImageData + jointActionsData
         if let depthData = compressedDepthData {
             messageBody += depthData
         }
@@ -127,12 +123,12 @@ class USBManager {
         let ptHeaderData = Data(bytes: &self.ptHeader, count:MemoryLayout<PeerTalkHeader>.size)
         
         let completeMessage = ptHeaderData + messageBody
-        print("Sending data of size: \(completeMessage.count)")
+        
+        print("USB data: \(completeMessage.count) bytes total")
+        
         activeConnection.send(content:completeMessage, completion: .contentProcessed {error in
             if let error = error {
-                print("Failed to send data: \(error)")
-            } else {
-                print("Image data sent successfully")
+                // USB send failed
             }
         })
     }
@@ -141,9 +137,7 @@ class USBManager {
         let data = message.data(using: .utf8)!
         connection.send(content: data, completion: .contentProcessed { error in
             if let error = error {
-                print("Failed to send data: \(error)")
-            } else {
-                print("Data sent successfully")
+                // Data send failed
             }
         })
     }
@@ -151,7 +145,6 @@ class USBManager {
     func compressData(from pixelBuffer: CVPixelBuffer, isDepth: Bool) -> Data? {
         // Extract depth data
         guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else {
-            print("Failed to access depth buffer base address")
             return nil
         }
         
@@ -179,11 +172,11 @@ class USBManager {
         )
 
         guard compressedSize > 0 else {
-            print("Failed to compress depth map")
             return nil
         }
 
         // Return compressed depth data
         return Data(bytes: compressedBuffer, count: compressedSize)
     }
+    
 }

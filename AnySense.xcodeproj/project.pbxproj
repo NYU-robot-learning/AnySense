@@ -7,12 +7,20 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		016073392EF5BE610061563B /* InferenceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 016073382EF5BE610061563B /* InferenceView.swift */; };
+		01682BC42DF0D88100CDA03C /* ModelInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F5B7C92DEA6A1000061B16 /* ModelInfo.swift */; };
+		01682BC52DF0D88C00CDA03C /* MLModel+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F5B7CB2DEA6A2000061B16 /* MLModel+Extensions.swift */; };
+		01682BC92DF4D7CB00CDA03C /* ARVisualizationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01682BC82DF4D7CB00CDA03C /* ARVisualizationManager.swift */; };
+		01B77E6D2ED94950007823B6 /* demo.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 01B77E6C2ED94950007823B6 /* demo.mlpackage */; };
+		01D2FDD82E64C33600F0BA98 /* ActionTransformUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01D2FDD52E64C33600F0BA98 /* ActionTransformUtils.swift */; };
+		01F5B7C42DEA697200061B16 /* MLInferenceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F5B7C32DEA697200061B16 /* MLInferenceManager.swift */; };
+		01F5B7C62DEA698D00061B16 /* MLInferenceResultsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F5B7C52DEA698D00061B16 /* MLInferenceResultsView.swift */; };
+		01F5B7C82DEA6A0000061B16 /* ModelManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F5B7C72DEA6A0000061B16 /* ModelManager.swift */; };
 		B9104F622BFDE63C000D4DDD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B9104F612BFDE63C000D4DDD /* Assets.xcassets */; };
 		B9944A342CFE983300232FBB /* MainPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9944A332CFE982E00232FBB /* MainPage.swift */; };
 		B997CCD32D4E081300F62B49 /* dataStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B997CCD22D4E081300F62B49 /* dataStorage.swift */; };
 		B997CCD52D4E082900F62B49 /* AnySenseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B997CCD42D4E082900F62B49 /* AnySenseApp.swift */; };
 		B9E4B22D2D62A9BA0032E877 /* BluetoothManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E4B2292D62A9BA0032E877 /* BluetoothManager.swift */; };
-		B9E4B22E2D62A9BA0032E877 /* WebRTCManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E4B22B2D62A9BA0032E877 /* WebRTCManager.swift */; };
 		B9E4B22F2D62A9BA0032E877 /* ARViewContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E4B2282D62A9BA0032E877 /* ARViewContainer.swift */; };
 		B9E4B2302D62A9BA0032E877 /* USBManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E4B22A2D62A9BA0032E877 /* USBManager.swift */; };
 		B9E4B2362D62A9C40032E877 /* peripheralView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E4B2332D62A9C40032E877 /* peripheralView.swift */; };
@@ -42,6 +50,15 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		016073382EF5BE610061563B /* InferenceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InferenceView.swift; sourceTree = "<group>"; };
+		01682BC82DF4D7CB00CDA03C /* ARVisualizationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ARVisualizationManager.swift; sourceTree = "<group>"; };
+		01B77E6C2ED94950007823B6 /* demo.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = demo.mlpackage; sourceTree = "<group>"; };
+		01D2FDD52E64C33600F0BA98 /* ActionTransformUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionTransformUtils.swift; sourceTree = "<group>"; };
+		01F5B7C32DEA697200061B16 /* MLInferenceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLInferenceManager.swift; sourceTree = "<group>"; };
+		01F5B7C52DEA698D00061B16 /* MLInferenceResultsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLInferenceResultsView.swift; sourceTree = "<group>"; };
+		01F5B7C72DEA6A0000061B16 /* ModelManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelManager.swift; sourceTree = "<group>"; };
+		01F5B7C92DEA6A1000061B16 /* ModelInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelInfo.swift; sourceTree = "<group>"; };
+		01F5B7CB2DEA6A2000061B16 /* MLModel+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MLModel+Extensions.swift"; sourceTree = "<group>"; };
 		B9104F5A2BFDE63A000D4DDD /* AnySense.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AnySense.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B9104F612BFDE63C000D4DDD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B9104F6A2BFDE63C000D4DDD /* AnySenseTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AnySenseTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -53,7 +70,6 @@
 		B9E4B2282D62A9BA0032E877 /* ARViewContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ARViewContainer.swift; sourceTree = "<group>"; };
 		B9E4B2292D62A9BA0032E877 /* BluetoothManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothManager.swift; sourceTree = "<group>"; };
 		B9E4B22A2D62A9BA0032E877 /* USBManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = USBManager.swift; sourceTree = "<group>"; };
-		B9E4B22B2D62A9BA0032E877 /* WebRTCManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebRTCManager.swift; sourceTree = "<group>"; };
 		B9E4B2312D62A9C40032E877 /* accountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = accountView.swift; sourceTree = "<group>"; };
 		B9E4B2322D62A9C40032E877 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B9E4B2332D62A9C40032E877 /* peripheralView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = peripheralView.swift; sourceTree = "<group>"; };
@@ -110,6 +126,9 @@
 		B9104F5C2BFDE63A000D4DDD /* AnySense */ = {
 			isa = PBXGroup;
 			children = (
+				01F5B7C92DEA6A1000061B16 /* ModelInfo.swift */,
+				01B77E6C2ED94950007823B6 /* demo.mlpackage */,
+				01F5B7CB2DEA6A2000061B16 /* MLModel+Extensions.swift */,
 				B9944A332CFE982E00232FBB /* MainPage.swift */,
 				B997CCD22D4E081300F62B49 /* dataStorage.swift */,
 				B9104F612BFDE63C000D4DDD /* Assets.xcassets */,
@@ -126,9 +145,12 @@
 			isa = PBXGroup;
 			children = (
 				B9E4B2282D62A9BA0032E877 /* ARViewContainer.swift */,
+				01F5B7C32DEA697200061B16 /* MLInferenceManager.swift */,
+				01D2FDD52E64C33600F0BA98 /* ActionTransformUtils.swift */,
+				01682BC82DF4D7CB00CDA03C /* ARVisualizationManager.swift */,
+				01F5B7C72DEA6A0000061B16 /* ModelManager.swift */,
 				B9E4B2292D62A9BA0032E877 /* BluetoothManager.swift */,
 				B9E4B22A2D62A9BA0032E877 /* USBManager.swift */,
-				B9E4B22B2D62A9BA0032E877 /* WebRTCManager.swift */,
 			);
 			path = Managers;
 			sourceTree = "<group>";
@@ -136,8 +158,10 @@
 		B9E4B2352D62A9C40032E877 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				01F5B7C52DEA698D00061B16 /* MLInferenceResultsView.swift */,
 				B9E4B2312D62A9C40032E877 /* accountView.swift */,
 				B9E4B2322D62A9C40032E877 /* ContentView.swift */,
+				016073382EF5BE610061563B /* InferenceView.swift */,
 				B9E4B2332D62A9C40032E877 /* peripheralView.swift */,
 				B9E4B2342D62A9C40032E877 /* readView.swift */,
 			);
@@ -266,6 +290,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				01B77E6D2ED94950007823B6 /* demo.mlpackage in Resources */,
 				B9104F622BFDE63C000D4DDD /* Assets.xcassets in Resources */,
 				B9E4D2B42D6965B90044F2D4 /* AnySenseLaunchScreen.storyboard in Resources */,
 			);
@@ -319,16 +344,23 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				01682BC42DF0D88100CDA03C /* ModelInfo.swift in Sources */,
 				B9E4B2362D62A9C40032E877 /* peripheralView.swift in Sources */,
+				01682BC92DF4D7CB00CDA03C /* ARVisualizationManager.swift in Sources */,
 				B9E4B2372D62A9C40032E877 /* accountView.swift in Sources */,
 				B9E4B2382D62A9C40032E877 /* readView.swift in Sources */,
 				B9E4B2392D62A9C40032E877 /* ContentView.swift in Sources */,
 				B997CCD52D4E082900F62B49 /* AnySenseApp.swift in Sources */,
 				B997CCD32D4E081300F62B49 /* dataStorage.swift in Sources */,
+				01682BC52DF0D88C00CDA03C /* MLModel+Extensions.swift in Sources */,
+				01F5B7C42DEA697200061B16 /* MLInferenceManager.swift in Sources */,
+				01D2FDD82E64C33600F0BA98 /* ActionTransformUtils.swift in Sources */,
+				01F5B7C82DEA6A0000061B16 /* ModelManager.swift in Sources */,
+				016073392EF5BE610061563B /* InferenceView.swift in Sources */,
 				B9E4B22D2D62A9BA0032E877 /* BluetoothManager.swift in Sources */,
-				B9E4B22E2D62A9BA0032E877 /* WebRTCManager.swift in Sources */,
 				B9E4B22F2D62A9BA0032E877 /* ARViewContainer.swift in Sources */,
 				B9E4B2302D62A9BA0032E877 /* USBManager.swift in Sources */,
+				01F5B7C62DEA698D00061B16 /* MLInferenceResultsView.swift in Sources */,
 				B9944A342CFE983300232FBB /* MainPage.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -492,7 +524,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 21;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = 88NB9U5CK6;
 				ENABLE_PREVIEWS = YES;
@@ -516,7 +548,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.3;
 				PRODUCT_BUNDLE_IDENTIFIER = GRAIL.AnySense;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -538,7 +570,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 21;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = 88NB9U5CK6;
 				ENABLE_PREVIEWS = YES;
@@ -561,7 +593,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.3;
 				PRODUCT_BUNDLE_IDENTIFIER = GRAIL.AnySense;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -581,7 +613,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 9U23FMDF45;
+				DEVELOPMENT_TEAM = 57DF45Y5K2;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.4;
@@ -601,7 +633,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 9U23FMDF45;
+				DEVELOPMENT_TEAM = 57DF45Y5K2;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.4;
@@ -620,7 +652,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 9U23FMDF45;
+				DEVELOPMENT_TEAM = 57DF45Y5K2;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
@@ -638,7 +670,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 9U23FMDF45;
+				DEVELOPMENT_TEAM = 57DF45Y5K2;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
